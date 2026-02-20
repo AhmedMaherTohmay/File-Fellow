@@ -39,7 +39,7 @@ SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.25"))
 
 # ── Vector Store ──────────────────────────────────────────────────────────
 VECTOR_STORE_BACKEND: str = os.getenv("VECTOR_STORE_BACKEND", "chroma")  # "chroma" | "faiss"
-CHROMA_COLLECTION: str = "smart_contracts"
+CHROMA_COLLECTION_PREFIX: str = "File_Fellow"
 
 # ── FastAPI / LangServe ───────────────────────────────────────────────────
 API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
