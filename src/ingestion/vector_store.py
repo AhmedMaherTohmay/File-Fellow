@@ -140,7 +140,7 @@ def add_document(
 
     # ── Global store (all docs together, for cross-doc queries) ───────────
     if VECTOR_STORE_BACKEND == "chroma":
-        global_coll = f"{CHROMA_COLLECTION_PREFIX}__all__"
+        global_coll = f"all_{CHROMA_COLLECTION_PREFIX}s"
         existing_global = _get_chroma_safe(global_coll)
         if existing_global is not None:
             existing_global.add_documents(chunks)
@@ -228,7 +228,6 @@ def get_history_store():
     # FAISS fallback
     hist_path = VECTOR_STORE_DIR / "faiss_history"
     if hist_path.exists():
-        _history_store = _get_faiss.__func__ if hasattr(_get_faiss, "__func__") else None
         from langchain_community.vectorstores import FAISS
         _history_store = FAISS.load_local(
             str(hist_path), get_embeddings(), allow_dangerous_deserialization=True

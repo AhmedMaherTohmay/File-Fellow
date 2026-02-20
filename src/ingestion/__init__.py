@@ -36,8 +36,8 @@ def ingest_document(file_path: "str | Path") -> Dict[str, Any]:
     # Ensure file is in uploads directory
     dest = UPLOAD_DIR / file_path.name
     if file_path.resolve() != dest.resolve():
-        dest.write_bytes(file_path.read_bytes())
-        # shutil.copy2(str(file_path), str(dest))
+        # dest.write_bytes(file_path.read_bytes())
+        shutil.copy2(str(file_path), str(dest))
         logger.info("Copied '%s' to uploads directory.", file_path.name)
 
     # 1. Parse

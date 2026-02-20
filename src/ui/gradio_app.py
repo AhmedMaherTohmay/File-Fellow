@@ -9,15 +9,12 @@ Tabs:
 from __future__ import annotations
 
 import json
-import logging
-import sys
-import uuid
 from pathlib import Path
-from typing import List, Optional
+import logging
+import uuid
+from typing import List
 
 import gradio as gr
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import GRADIO_HOST, GRADIO_PORT, GRADIO_SHARE, UPLOAD_DIR
 from src.ingestion import ingest_document
@@ -32,21 +29,6 @@ from src.llm.summarizer import summarize_document
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
-
-
-# ── Session management ─────────────────────────────────────────────────────
-
-_session_id: str = str(uuid.uuid4())[:8]
-
-
-def _new_session() -> str:
-    global _session_id
-    _session_id = str(uuid.uuid4())[:8]
-    return _session_id
-
-
-def _get_session() -> str:
-    return _session_id
 
 
 # ── Tab 1: Upload & Manage ─────────────────────────────────────────────────
@@ -129,6 +111,7 @@ def chat(
     user_message: str,
     chat_history: list,
     doc_selector: str,
+    session_id: str,
 ) -> tuple[str, list]:
     """Process a chat message."""
     if not user_message.strip():
@@ -153,7 +136,7 @@ def chat(
             question=user_message,
             history=lc_history,
             doc_name=doc_name,
-            session_id=_get_session(),
+            session_id=session_id,
         )
         answer = result["answer"]
         sources_text = _format_sources(result["sources"])
@@ -166,9 +149,9 @@ def chat(
     return "", chat_history
 
 
-def clear_chat() -> tuple[str, list, str]:
-    new_sid = _new_session()
-    return "", [], f"🔑 New session: `{new_sid}`"
+def clear_chat() -> tuple[str, list, str, str]:
+    new_sid = str(uuid.uuid4())[:8]
+    return "", [], f"🔑 New session: `{new_sid}`", new_sid
 
 
 # ── Tab 3: Summary ─────────────────────────────────────────────────────────
@@ -207,6 +190,9 @@ Multi-document RAG pipeline — upload contracts, ask questions, get grounded an
 
 with gr.Blocks(theme=gr.themes.Soft(), css=CSS, title="Smart Contract Assistant v2") as demo:
     gr.Markdown(DESCRIPTION)
+
+    # Per-user session state
+    session_state = gr.State(lambda: str(uuid.uuid4())[:8])
 
     with gr.Tabs():
 
@@ -275,7 +261,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css=CSS, title="Smart Contract Assistant 
                 bubble_full_width=False,
             )
 
-            session_info = gr.Markdown(f"🔑 Session: `{_get_session()}`")
+            session_info = gr.Markdown("🔑 Session active")
 
             with gr.Row():
                 msg_input = gr.Textbox(
@@ -298,17 +284,17 @@ with gr.Blocks(theme=gr.themes.Soft(), css=CSS, title="Smart Contract Assistant 
 
             send_btn.click(
                 fn=chat,
-                inputs=[msg_input, chatbot, doc_selector_chat],
+                inputs=[msg_input, chatbot, doc_selector_chat, session_state],
                 outputs=[msg_input, chatbot],
             )
             msg_input.submit(
                 fn=chat,
-                inputs=[msg_input, chatbot, doc_selector_chat],
+                inputs=[msg_input, chatbot, doc_selector_chat, session_state],
                 outputs=[msg_input, chatbot],
             )
             clear_btn.click(
                 fn=clear_chat,
-                outputs=[msg_input, chatbot, session_info],
+                outputs=[msg_input, chatbot, session_info, session_state],
             )
             refresh_docs_btn.click(
                 fn=_refresh_dropdown,
