@@ -16,7 +16,7 @@ from langchain_core.documents import Document
 from config.settings import TOP_K, SIMILARITY_THRESHOLD
 from src.ingestion.vector_store import (
     get_global_store,
-    get_store_for_document,
+    get_store_for_doc,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ def retrieve_chunks(
     # Select appropriate store
     try:
         if doc_name:
-            store = get_store_for_document(doc_name)
+            store = get_store_for_doc(doc_name)
         else:
             store = get_global_store()
     except RuntimeError as e:

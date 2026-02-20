@@ -1,5 +1,4 @@
 """
-Central configuration for Smart Contract Assistant v2.
 Loads from config.yaml first, then .env overrides, then environment variables.
 Uses pathlib.Path for cross-platform compatibility.
 """
