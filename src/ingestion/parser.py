@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def parse_pdf(file_path: str | Path) -> List[Dict[str, Any]]:
         doc.close()
         logger.info("PyMuPDF parsed %d pages from '%s'.", len(pages), file_path.name)
         return pages
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("PyMuPDF failed (%s); falling back to pdfplumber.", e)
 
     try:
@@ -56,9 +56,7 @@ def parse_pdf(file_path: str | Path) -> List[Dict[str, Any]]:
 
 
 def parse_docx(file_path: str | Path) -> List[Dict[str, Any]]:
-    """Extract text from a DOCX file paragraph by paragraph.
-
-    Groups paragraphs into synthetic 'pages' of ~40 lines each.
+    """Extract text from a DOCX file, grouped into synthetic pages.
 
     Args:
         file_path: Absolute path to the DOCX.
@@ -72,7 +70,6 @@ def parse_docx(file_path: str | Path) -> List[Dict[str, Any]]:
     doc = Document(str(file_path))
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
-    # Group ~40 paragraphs per synthetic page
     GROUP_SIZE = 40
     pages: List[Dict[str, Any]] = []
     for idx in range(0, len(paragraphs), GROUP_SIZE):
