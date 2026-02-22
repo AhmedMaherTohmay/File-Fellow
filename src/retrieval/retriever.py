@@ -61,7 +61,7 @@ def retrieve_chunks(
 
 
     # Apply threshold filter
-    filtered = [(doc, score) for doc, score in results if score >= threshold]
+    filtered = [(doc, score) for doc, score in results]
 
     if not filtered and results:
         logger.warning(
