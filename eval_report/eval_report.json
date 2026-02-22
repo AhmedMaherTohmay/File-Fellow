@@ -1,0 +1,82 @@
+{
+  "summary": {
+    "num_samples_evaluated": 5,
+    "avg_faithfulness": 9.2,
+    "avg_relevance": 10.0,
+    "avg_correctness": 9.6,
+    "hallucination_rate": 0.4,
+    "avg_composite_score": 9.6
+  },
+  "details": [
+    {
+      "sample": 1,
+      "source_document": "Fraud_Detection_System_Design.pdf",
+      "question": "What type of information is included in the Score Response to provide transparency for manual review?",
+      "ground_truth": "feature-level explanations, risk level classification, and individual model contributions",
+      "candidate_answer": "The Score Response includes the ensemble risk score, individual model contributions, risk level classification, and feature-level explanations to provide transparency for manual review [Source: Fraud_Detection_System_Design.pdf, Page: 19].",
+      "retrieved_context_preview": "merch_lat, merch_long\nnumber\nYes\nMerchant coordinates\nTable 8.2: Score Request Schema\n8.2.2 Score Response\nThe response provides the ensemble risk score along with individual model contributions, risk level\nclassification, and feature-level explanations. This information enables downstream systems to take\nappropriate action and provides transparency for manual review.\nField\nType\nDescription\ntransa",
+      "num_chunks_retrieved": 5,
+      "faithfulness": 8.0,
+      "relevance": 10.0,
+      "correctness": 10.0,
+      "hallucination_flag": true,
+      "reasoning": "The candidate answer is mostly faithful to the context, directly addresses the question, and is correct in terms of the information included in the Score Response. However, it includes a source reference (Fraud_Detection_System_Design.pdf, Page: 19) that is not present in the retrieved context, which triggers the hallucination flag. The answer accurately captures the key points from the context, including the ensemble risk score, individual model contributions, risk level classification, and feature-level explanations."
+    },
+    {
+      "sample": 2,
+      "source_document": "Fraud_Detection_System_Design.pdf",
+      "question": "What is the purpose of the /api/v1/model/reload endpoint?",
+      "ground_truth": "Reload model from registry",
+      "candidate_answer": "The purpose of the /api/v1/model/reload endpoint is to reload the model from the registry [Source: Fraud_Detection_System_Design.pdf, Page: 18].",
+      "retrieved_context_preview": "8. API Design (FastAPI)\nThe FastAPI application exposes REST endpoints for transaction scoring and system management. The\nAPI design prioritizes low latency for the scoring endpoint while providing comprehensive management\nendpoints for model operations, monitoring, and configuration. All endpoints include authentication, input\nvalidation, and structured error handling.\n8.1 Endpoint Specification\n",
+      "num_chunks_retrieved": 5,
+      "faithfulness": 10.0,
+      "relevance": 10.0,
+      "correctness": 10.0,
+      "hallucination_flag": false,
+      "reasoning": "The candidate answer directly addresses the question and accurately states the purpose of the /api/v1/model/reload endpoint, which is to reload the model from the registry. This information is present in the retrieved context, making the answer faithful to the context. The answer is also relevant and correct, as it aligns with the ground-truth answer."
+    },
+    {
+      "sample": 3,
+      "source_document": "Fraud_Detection_System_Design.pdf",
+      "question": "What is the purpose of the 'fraud_detection_dev' experiment in the MLflow integration?",
+      "ground_truth": "The purpose of the 'fraud_detection_dev' experiment is not explicitly stated in the provided text, but based on its name and location in the 'Experiment Organization' section, it appears to be related to development iterations for a fraud detection model.",
+      "candidate_answer": "The purpose of the 'fraud_detection_dev' experiment is not explicitly stated in the provided context. However, based on the information available, it appears to be related to development experiments, as it is mentioned under the top-level experiment structure that separates development experiments from production runs [Source: Fraud_Detection_System_Design.pdf, Page: 16, Score: 0.506].",
+      "retrieved_context_preview": "7. MLflow Integration\nMLflow serves as the central hub for experiment tracking, model versioning, and deployment\nmanagement. The integration ensures reproducibility of experiments, facilitates model comparison, and\nprovides a clean interface for promoting models from development to production. The MLflow tracking\nserver runs as a separate service, accessible to both training pipelines and inferenc",
+      "num_chunks_retrieved": 5,
+      "faithfulness": 8.0,
+      "relevance": 10.0,
+      "correctness": 8.0,
+      "hallucination_flag": true,
+      "reasoning": "The candidate answer is mostly faithful to the context, but it introduces external information by referencing 'Fraud_Detection_System_Design.pdf', which is not present in the retrieved context. The answer is highly relevant to the question and aligns with the ground-truth answer in terms of correctness, as it suggests the experiment is related to development iterations for a fraud detection model."
+    },
+    {
+      "sample": 4,
+      "source_document": "Fraud_Detection_System_Design.pdf",
+      "question": "What is the fraud rate in the transactions that the model is trained on?",
+      "ground_truth": "0.5%",
+      "candidate_answer": "The fraud rate in the transactions is 0.5% [Source: Fraud_Detection_System_Design.pdf, Page: 3]. This significant class imbalance is one of the reasons the team recommends an unsupervised anomaly detection approach [Source: Fraud_Detection_System_Design.pdf, Page: 13].",
+      "retrieved_context_preview": "6. Model Selection & Training\nGiven the severe class imbalance (0.5% fraud rate) and the overfitting issues encountered with supervised\napproaches, we adopt an unsupervised anomaly detection strategy. This approach learns the distribution of\nnormal transactions and identifies deviations as potential fraud. The key advantage is that the model\nproduces a continuous anomaly score rather than a binary",
+      "num_chunks_retrieved": 5,
+      "faithfulness": 10.0,
+      "relevance": 10.0,
+      "correctness": 10.0,
+      "hallucination_flag": false,
+      "reasoning": "The candidate answer directly quotes the fraud rate from the retrieved context and provides a relevant explanation for the recommended approach. The answer is entirely grounded in the context, making it faithful and free of hallucinations. The correctness is also perfect as it matches the ground-truth answer."
+    },
+    {
+      "sample": 5,
+      "source_document": "Fraud_Detection_System_Design.pdf",
+      "question": "What is the purpose of the builder stage in the multi-stage Dockerfile structure?",
+      "ground_truth": "Compile dependencies",
+      "candidate_answer": "The purpose of the builder stage in the multi-stage Dockerfile structure is to compile dependencies [Source: Fraud_Detection_System_Design.pdf, Page: 20]. It contains build tools, pip, requirements.txt, and compiled wheels [Source: Fraud_Detection_System_Design.pdf, Page: 20].",
+      "retrieved_context_preview": "postgres:15-alpine\n5432\n2 CPU, 8GB RAM\nredis\nredis:7-alpine\n6379\n0.5 CPU, 1GB RAM\nTable 9.1: Container Configuration\n9.2 Dockerfile Structure\nThe application Dockerfile follows multi-stage build practices to minimize image size while maintaining\nbuild efficiency. The build stage compiles dependencies and prepares the application, while the runtime\nstage contains only the necessary runtime componen",
+      "num_chunks_retrieved": 5,
+      "faithfulness": 10.0,
+      "relevance": 10.0,
+      "correctness": 10.0,
+      "hallucination_flag": false,
+      "reasoning": "The candidate answer accurately reflects the information provided in the retrieved context, specifically that the builder stage compiles dependencies and contains build tools, pip, requirements.txt, and compiled wheels. The answer directly addresses the question and aligns with the ground-truth answer, demonstrating high faithfulness, relevance, and correctness."
+    }
+  ]
+}
