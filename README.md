@@ -87,15 +87,18 @@ User Message
 ### Prerequisites
 
 - Python 3.10+
+- uv
 - A [Groq API key](https://console.groq.com/) (free tier available)
 
 ### Installation
 
 ```bash
-git clone <your-repo-url>
+# Clone the repository
+git clone https://github.com/AhmedMaherTohmay/File-Fellow.git
 cd file-fellow
 
-pip install -r requirements.txt
+# Create a virtual environment and install all dependencies
+uv sync
 ```
 
 ### Configuration
@@ -127,6 +130,7 @@ similarity_threshold: 0.25
 ### Full application (API + UI)
 
 ```bash
+uv run python main.py (uv)
 python main.py
 ```
 
@@ -137,12 +141,14 @@ python main.py
 ### UI only
 
 ```bash
+uv run python main.py --ui
 python main.py --ui
 ```
 
 ### API only
 
 ```bash
+uv run python main.py --api
 python main.py --api
 ```
 
