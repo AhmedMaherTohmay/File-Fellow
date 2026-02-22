@@ -1,6 +1,7 @@
 """
 RAG-based Q&A chain with:
   - Multi-document support (query one or all docs).
+  - Graceful normal conversation even when no documents are ingested.
   - Semantic session history retrieval from vector store.
   - Source citations in every response.
 """
@@ -18,13 +19,16 @@ from src.memory.history_store import HistoryStore
 
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY_TURNS = 6  # Recent turns included in prompt
+MAX_HISTORY_TURNS = 6  # Recent turns to include in the prompt
 
 
 # ── Formatting helpers ─────────────────────────────────────────────────────
 
 def _format_context(chunks: List[Tuple[Document, float]]) -> str:
-    """Format retrieved chunks with citations."""
+    """Format retrieved chunks with source citations for the prompt."""
+    if not chunks:
+        return "No document context available."
+
     parts = []
     for doc, score in chunks:
         m = doc.metadata
@@ -38,9 +42,10 @@ def _format_context(chunks: List[Tuple[Document, float]]) -> str:
 
 
 def _format_history(history: List[dict]) -> str:
-    """Format recent conversation turns for the prompt."""
+    """Format the last N conversation turns for the prompt."""
     if not history:
         return "No recent conversation."
+    # Take only the most recent turns to keep the prompt concise
     recent = history[-(MAX_HISTORY_TURNS * 2):]
     lines = []
     for msg in recent:
@@ -57,34 +62,41 @@ def answer_question(
     doc_name: Optional[str] = None,
     session_id: str = "default",
 ) -> dict:
-    """Generate a grounded answer to the user's question.
+    """Generate a response to the user's message.
+
+    Handles two modes automatically:
+      - **Conversational**: No documents loaded, or a casual greeting/question.
+        The LLM responds naturally without document grounding.
+      - **Document Q&A**: Documents are loaded. Retrieved chunks are injected
+        into the prompt and the LLM cites its sources.
 
     Args:
-        question: The user's question text.
-        history: Recent conversation as list of {role, content} dicts.
-        doc_name: Target document. None = query across all documents.
-        session_id: Session identifier for history store lookup.
+        question: The user's message or question text.
+        history: Recent conversation as a list of {role, content} dicts.
+        doc_name: Target document name. None = query across all documents.
+        session_id: Session identifier used for history store isolation.
 
     Returns:
-        Dict with ``answer``, ``sources``, ``retrieved_chunks``.
+        Dict with keys:
+          - ``answer`` (str): The LLM's response.
+          - ``sources`` (list): Source citation dicts (empty for casual chat).
+          - ``retrieved_chunks`` (list): Raw (Document, score) pairs retrieved.
     """
     history = history or []
 
     # ── Semantic history retrieval ─────────────────────────────────────────
+    # Fetch past turns from the persistent vector history store that are
+    # semantically relevant to the current question.
     history_mgr = HistoryStore(session_id=session_id)
     relevant_history = history_mgr.retrieve_relevant(question)
     semantic_history_str = history_mgr.format_for_prompt(relevant_history)
 
     # ── Document retrieval ────────────────────────────────────────────────
+    # retrieve_chunks returns [] if no store is ready or nothing passes threshold.
     retrieved = retrieve_chunks(question, doc_name=doc_name)
 
-    if not retrieved:
-        return {
-            "answer": "Information not found in the document.",
-            "sources": [],
-            "retrieved_chunks": [],
-        }
-
+    # Build context string — "No document context available." when empty,
+    # which the prompt handles gracefully for normal conversation.
     context_str = _format_context(retrieved)
     history_str = _format_history(history)
 
@@ -117,7 +129,7 @@ def answer_question(
             }
         )
 
-    # ── Persist this turn to history store ────────────────────────────────
+    # ── Persist this turn to the history store ────────────────────────────
     history_mgr.add_turn(user=question, assistant=answer)
 
     logger.debug(

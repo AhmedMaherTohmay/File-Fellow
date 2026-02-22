@@ -243,4 +243,4 @@ celerybeat.pid
 test*
 uploads/
 vector_store/
-eval_report.json
+# eval_report.json

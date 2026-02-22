@@ -117,19 +117,13 @@ def chat(
     if not user_message.strip():
         return "", chat_history
 
-    if not store_is_ready():
-        reply = "⚠️ Please upload and ingest a document first (see the **Upload** tab)."
-        chat_history.append((user_message, reply))
-        return "", chat_history
 
     # Resolve doc_name from selector
     doc_name = None if doc_selector == "🌐 All Documents" else doc_selector
 
-    # Convert Gradio history → LangChain format
-    lc_history = []
-    for human, ai in chat_history:
-        lc_history.append({"role": "user", "content": human})
-        lc_history.append({"role": "assistant", "content": ai})
+    # Gradio's history is ALREADY a list of dicts now! 
+    # We can just copy it directly for the QA chain.
+    lc_history = chat_history.copy()
 
     try:
         result = answer_question(
@@ -145,7 +139,10 @@ def chat(
         logger.error("Chat error: %s", e)
         bot_reply = f"❌ Error: {e}"
 
-    chat_history.append((user_message, bot_reply))
+    # Append dictionaries instead of lists
+    chat_history.append({"role": "user", "content": user_message})
+    chat_history.append({"role": "assistant", "content": bot_reply})
+    
     return "", chat_history
 
 
@@ -258,7 +255,6 @@ with gr.Blocks(theme=gr.themes.Soft(), css=CSS, title="Smart Contract Assistant 
             chatbot = gr.Chatbot(
                 elem_id="chatbot",
                 label="Contract Assistant",
-                bubble_full_width=False,
             )
 
             session_info = gr.Markdown("🔑 Session active")
