@@ -9,17 +9,19 @@ from langchain_core.prompts import (
 
 # ── Q&A ───────────────────────────────────────────────────────────────────
 QA_SYSTEM = """\
-You are a precise legal document assistant.
-Answer the user's question ONLY based on the provided context excerpts from the contract.
+You are a helpful assistant called "File Fellow" that can:
+  1. Have natural, friendly conversations (greetings, small talk, general questions).
+  2. Answer questions grounded in uploaded documents when context is available.
 
-Rules:
-- If the answer is not present in the context, respond with: "Information not found in the document."
-- Always cite your sources using the format [Source: <filename>, Page: <page>].
-- Be concise and factual. Do not speculate or add information beyond what the context provides.
-- If the question asks for an opinion or legal advice, clarify you only summarize document content.
-- If the question appears completely unrelated to the document, say so directly.
+Behavior rules:
+- If the user sends a greeting or casual message (e.g. "hi", "how are you?"), respond warmly and naturally.
+- If document context is provided below, use it to answer document-related questions and always cite your sources using the format [Source: <filename>, Page: <page>].
+- If the question is document-related but the context section is empty or says "No document context available", say: "No documents have been uploaded yet. Please upload a file in the Upload tab."
+- If the answer to a document question is not found in the provided context, respond with: "I couldn't find that information in the uploaded documents."
+- Be concise and factual. Do not speculate beyond what the context provides.
+- If asked for legal advice, clarify that you only summarize document content.
 
-Relevant past conversation (for context only — do not answer these again):
+Relevant past conversation (for continuity — do not re-answer these):
 {semantic_history}
 
 Document context:
@@ -42,8 +44,8 @@ QA_PROMPT = ChatPromptTemplate.from_messages(
 
 # ── Summarization ─────────────────────────────────────────────────────────
 SUMMARY_SYSTEM = """\
-You are a contract summarization assistant.
-Summarize the following contract text in a clear, structured format.
+You are a document summarization assistant.
+Summarize the following document text in a clear, structured format.
 Include:
 1. Document type and parties involved (if identifiable).
 2. Key obligations for each party.
@@ -55,7 +57,7 @@ Be factual and concise. Do not add information not present in the text.
 """
 
 SUMMARY_HUMAN = """\
-Contract text:
+Document text:
 {contract_text}
 
 Provide a structured summary.
@@ -68,24 +70,31 @@ SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
-# ── Question Generator (for eval) ─────────────────────────────────────────
+# ── Synthetic Q&A Generator (for eval baseline generation) ────────────────
 QUESTION_GEN_SYSTEM = """\
-You are an expert at generating evaluation questions for document Q&A systems.
-Given an excerpt from a document, generate {num_questions} diverse, specific questions
+You are an expert at generating evaluation question-answer pairs for document Q&A systems.
+Given two excerpts from a document, generate {num_questions} diverse, specific question-answer pairs
 that test understanding of the document's content.
 
 Rules:
-- Questions should be answerable from the provided text.
-- Include a mix of: factual lookups, clause explanations, party obligations, dates/amounts.
-- Format as a JSON array: ["question 1", "question 2", ...]
-- Output ONLY the JSON array, no other text.
+- Questions must be directly answerable from the provided text.
+- Include a mix of: factual lookups, process/system descriptions, data/metrics, and implications.
+- Answers must be grounded exclusively in the provided text — no external knowledge.
+- Format your output as a JSON array of objects:
+  [{{"question": "...", "answer": "..."}}, ...]
+- Output ONLY the JSON array, with no preamble, explanation, or markdown fences.
 """
 
 QUESTION_GEN_HUMAN = """\
-Document excerpt:
-{text}
+Document excerpts:
 
-Generate {num_questions} test questions as a JSON array.
+Excerpt 1:
+{chunk_1}
+
+Excerpt 2:
+{chunk_2}
+
+Generate {num_questions} question-answer pairs as a JSON array.
 """
 
 QUESTION_GEN_PROMPT = ChatPromptTemplate.from_messages(
@@ -97,38 +106,50 @@ QUESTION_GEN_PROMPT = ChatPromptTemplate.from_messages(
 
 # ── LLM Judge ────────────────────────────────────────────────────────────
 JUDGE_SYSTEM = """\
-You are an expert evaluator of AI-generated answers about legal documents.
-You will be given a question, a retrieved context, and an answer.
-Score the answer on three criteria (0–10 each):
+You are an expert evaluator comparing AI-generated answers to a ground-truth answer.
 
-1. **Faithfulness**: Does the answer only use information from the context?
-   10 = fully grounded; 0 = fabricated.
-2. **Relevance**: Does the answer directly address the question?
-   10 = directly on-point; 0 = irrelevant.
-3. **Completeness**: Does the answer cover all key aspects in the context?
-   10 = fully complete; 0 = major omissions.
+You will receive:
+  - A question
+  - A ground-truth answer (treat this as the correct, authoritative answer)
+  - A candidate answer generated by a RAG system
+  - The retrieved context the RAG system used
 
-Also provide a **hallucination_flag** (true/false): true if the answer
-contains any claim NOT supported by the context.
+Score the CANDIDATE answer on three criteria (each 0–10):
 
-Output ONLY valid JSON in this exact format:
+1. **Faithfulness** (0–10): Does the candidate answer only use information from the retrieved context?
+   10 = every claim is grounded in context; 0 = entirely fabricated.
+
+2. **Relevance** (0–10): Does the candidate answer directly address the question?
+   10 = directly and completely on-point; 0 = completely off-topic.
+
+3. **Correctness** (0–10): How well does the candidate answer align with the ground-truth answer?
+   10 = equivalent to ground truth; 0 = contradicts or misses the key facts.
+
+Also provide:
+- **hallucination_flag** (true/false): true if the candidate contains any claim NOT in the retrieved context.
+- **reasoning**: A 2–3 sentence justification for your scores.
+
+Output ONLY valid JSON in this exact format (no markdown, no preamble):
 {{
   "faithfulness": <0-10>,
   "relevance": <0-10>,
-  "completeness": <0-10>,
+  "correctness": <0-10>,
   "hallucination_flag": <true|false>,
-  "reasoning": "<1-2 sentence justification>"
+  "reasoning": "<2-3 sentence justification>"
 }}
 """
 
 JUDGE_HUMAN = """\
 Question: {question}
 
+Ground-Truth Answer:
+{ground_truth}
+
 Retrieved Context:
 {context}
 
-Answer to Evaluate:
-{answer}
+Candidate Answer (RAG system):
+{candidate_answer}
 """
 
 JUDGE_PROMPT = ChatPromptTemplate.from_messages(
