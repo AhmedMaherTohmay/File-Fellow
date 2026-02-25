@@ -9,7 +9,7 @@ langserve[all]==0.3.3
 langchain-groq==1.1.2
 
 # FastAPI / ASGI
-fastapi==0.129.0
+fastapi[standard]
 uvicorn[standard]==0.41.0
 python-multipart==0.0.22
 

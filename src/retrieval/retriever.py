@@ -55,13 +55,14 @@ def retrieve_chunks(
         results: List[Tuple[Document, float]] = (
             store.similarity_search_with_relevance_scores(query, k=top_k)
         )
+        logger.info(results)
     except Exception as e:
         logger.error("Similarity search failed: %s", e)
         return []
 
 
     # Apply threshold filter
-    filtered = [(doc, score) for doc, score in results]
+    filtered = [(doc, score) for doc, score in results if score >= threshold]
 
     if not filtered and results:
         logger.warning(

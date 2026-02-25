@@ -64,7 +64,7 @@ CHUNK_OVERLAP: int = int(_get("CHUNK_OVERLAP", "150"))
 
 # ── Retrieval ─────────────────────────────────────────────────────────────
 TOP_K: int = int(_get("TOP_K", "5"))
-SIMILARITY_THRESHOLD: float = float(_get("SIMILARITY_THRESHOLD", "0.25"))
+SIMILARITY_THRESHOLD: float = float(_get("SIMILARITY_THRESHOLD", "0.000"))
 
 # ── Vector Store ──────────────────────────────────────────────────────────
 VECTOR_STORE_BACKEND: str = _get("VECTOR_STORE_BACKEND", "chroma")

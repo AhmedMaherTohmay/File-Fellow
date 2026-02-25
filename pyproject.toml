@@ -3,38 +3,31 @@ name = "File_Fellow"
 version = "0.1.0"
 description = "A production-quality, **multi-document RAG** (Retrieval-Augmented Generation) web application for uploading files and interacting with them via a conversational assistant"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10, <3.13"
 dependencies = [
     # Core
     "python-dotenv==1.2.1",
-
     # LangChain
     "langchain==1.2.10",
     "langchain-core==1.2.13",
     "langchain-community==0.4.1",
     "langserve[all]==0.3.3",
     "langchain-groq==1.1.2",
-
     # FastAPI / ASGI
-    "fastapi==0.129.0",
+    "fastapi[standard]==0.129.0",
     "uvicorn[standard]==0.41.0",
     "python-multipart==0.0.22",
-
     # UI
     "gradio==6.6.0",
-
     # Vector stores
     "chromadb==1.5.0",
     "faiss-cpu==1.13.2",
-
     # Embeddings
     "sentence-transformers==2.7.0",
-
     # Document parsing
     "pymupdf==1.27.1",
     "pdfplumber==0.11.9",
     "python-docx==1.2.0",
-
     # Numerics
     "numpy==1.26.4",
 ]
