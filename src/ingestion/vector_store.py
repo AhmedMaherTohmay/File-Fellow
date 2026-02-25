@@ -15,8 +15,10 @@ import json
 import logging
 import re
 import shutil
+import hashlib
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Iterator
 
 from langchain_core.documents import Document
 
@@ -47,8 +49,19 @@ def _load_registry() -> Dict[str, dict]:
 
 
 def _save_registry(registry: Dict[str, dict]) -> None:
+    """Atomic save with backup."""
     _registry_path.parent.mkdir(parents=True, exist_ok=True)
-    _registry_path.write_text(json.dumps(registry, indent=2), encoding="utf-8")
+    temp_path = _registry_path.with_suffix(".tmp")
+    
+    # Write to temp first
+    temp_path.write_text(json.dumps(registry, indent=2), encoding="utf-8")
+    
+    # Backup existing
+    if _registry_path.exists():
+        shutil.copy2(_registry_path, _registry_path.with_suffix(".json.bak"))
+    
+    # Atomic rename
+    temp_path.replace(_registry_path)
 
 
 def get_document_registry() -> Dict[str, dict]:
@@ -59,14 +72,30 @@ def get_document_registry() -> Dict[str, dict]:
 # Helpers
 # ───────────────────────────────────────────────────────────────
 
-def _safe_name(filename: str) -> str:
-    base = Path(filename).stem
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", base)[:40]
-    return safe or "doc"
+def _safe_name(filename: str, max_len: int = 30) -> str:
+    """
+    Generate collision-resistant safe name.
+    Includes hash suffix to guarantee uniqueness.
+    """
+    path = Path(filename)
+    base = path.stem or "unnamed"
+    
+    # Create hash from full filename for uniqueness
+    name_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
+    
+    # Clean base name
+    safe_base = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", base)
+    safe_base = re.sub(r"_+", "_", safe_base).strip("_")
+    
+    # Reserve space for hash suffix
+    available = max_len - len(name_hash) - 1
+    truncated = safe_base[:available] if len(safe_base) > available else safe_base
+    
+    return f"{truncated}_{name_hash}" if truncated else f"doc_{name_hash}"
 
 
 def _chroma_collection_name(doc_name: str) -> str:
-    return f"{CHROMA_COLLECTION_PREFIX}{_safe_name(doc_name)}"
+    return f"{CHROMA_COLLECTION_PREFIX}_{_safe_name(doc_name)}"
 
 
 # ───────────────────────────────────────────────────────────────

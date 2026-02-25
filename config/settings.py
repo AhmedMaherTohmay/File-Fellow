@@ -68,7 +68,7 @@ SIMILARITY_THRESHOLD: float = float(_get("SIMILARITY_THRESHOLD", "0.000"))
 
 # ── Vector Store ──────────────────────────────────────────────────────────
 VECTOR_STORE_BACKEND: str = _get("VECTOR_STORE_BACKEND", "chroma")
-CHROMA_COLLECTION_PREFIX: str = _get("CHROMA_COLLECTION_PREFIX", "contract_")
+CHROMA_COLLECTION_PREFIX: str = _get("CHROMA_COLLECTION_PREFIX", "file")
 CHAT_HISTORY_COLLECTION: str = _get("CHAT_HISTORY_COLLECTION", "chat_history")
 
 # ── Multi-doc ─────────────────────────────────────────────────────────────
