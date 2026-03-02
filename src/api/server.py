@@ -26,7 +26,7 @@ from langchain_core.runnables import RunnableLambda
 from langserve import add_routes
 
 from config.settings import UPLOAD_DIR, API_HOST, API_PORT
-from src.ingestion import ingest_document
+from src.ingestion import ingest_document, sanitize_filename
 from src.ingestion.vector_store import (
     store_is_ready,
     get_ingested_documents,
@@ -99,20 +99,33 @@ async def health():
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(file: UploadFile = File(...)):
-    """Upload and ingest a PDF or DOCX document synchronously."""
+    """Upload and ingest a PDF or DOCX document.
+
+    The filename is sanitized before being written to disk so that no
+    unsafe name (e.g. path traversal sequences, special characters) ever
+    touches the filesystem.
+    """
     allowed = {".pdf", ".docx", ".doc"}
     suffix = Path(file.filename).suffix.lower()
     if suffix not in allowed:
         raise HTTPException(400, f"Unsupported file type: '{suffix}'")
 
-    dest = UPLOAD_DIR / file.filename
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # Sanitize before writing — the safe name is what lands on disk
+    safe_name = sanitize_filename(file.filename)
+    dest = UPLOAD_DIR / safe_name
+
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with dest.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except OSError as e:
+        logger.error("Failed to save uploaded file '%s': %s", safe_name, e)
+        raise HTTPException(500, f"Could not save file: {e}") from e
 
     try:
         result = ingest_document(dest)
     except Exception as e:
-        logger.error("Ingestion failed: %s", e)
+        logger.error("Ingestion failed for '%s': %s", safe_name, e)
         raise HTTPException(500, f"Ingestion error: {e}") from e
 
     return IngestResponse(
@@ -124,7 +137,12 @@ async def ingest(file: UploadFile = File(...)):
 
 @app.post("/ingest/batch", response_model=BatchIngestResponse)
 async def ingest_batch(files: List[UploadFile] = File(...)):
-    """Upload and ingest multiple documents at once."""
+    """Upload and ingest multiple documents at once.
+
+    Each filename is sanitized independently before being written to disk.
+    Files that fail type validation or ingestion are collected in ``errors``
+    so the rest of the batch still completes.
+    """
     allowed = {".pdf", ".docx", ".doc"}
     results = []
     errors = []
@@ -132,22 +150,34 @@ async def ingest_batch(files: List[UploadFile] = File(...)):
     for file in files:
         suffix = Path(file.filename).suffix.lower()
         if suffix not in allowed:
-            errors.append({"filename": file.filename, "error": f"Unsupported type: '{suffix}'"})
+            errors.append({
+                "filename": file.filename,
+                "error": f"Unsupported file type: '{suffix}'",
+            })
             continue
 
-        dest = UPLOAD_DIR / file.filename
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        # Sanitize before writing — safe name is what lands on disk
+        safe_name = sanitize_filename(file.filename)
+        dest = UPLOAD_DIR / safe_name
+
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with dest.open("wb") as f:
+                shutil.copyfileobj(file.file, f)
+        except OSError as e:
+            errors.append({"filename": file.filename, "error": f"Could not save file: {e}"})
+            logger.error("Failed to save '%s': %s", safe_name, e)
+            continue
 
         try:
             result = ingest_document(dest)
             results.append(IngestResponse(
                 **result,
-                message=f"Ingested '{file.filename}' ({result['num_chunks']} chunks).",
+                message=f"Ingested '{result['filename']}' ({result['num_chunks']} chunks).",
             ))
         except Exception as e:
             errors.append({"filename": file.filename, "error": str(e)})
-            logger.error("Batch ingestion error for '%s': %s", file.filename, e)
+            logger.error("Ingestion error for '%s': %s", safe_name, e)
 
     return BatchIngestResponse(results=results, errors=errors)
 

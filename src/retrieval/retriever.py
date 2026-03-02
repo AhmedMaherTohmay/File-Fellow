@@ -1,10 +1,16 @@
 """
-Semantic retrieval from the vector store(s).
+Semantic retrieval from the single global vector store.
 
-Supports:
-  - Single document retrieval (filtered by doc_name).
-  - Cross-document retrieval (all ingested documents).
-  - Off-topic guard: returns an empty list when max similarity is very low.
+Per-document scoping is achieved through metadata filtering rather than
+separate collections:
+
+  - Chroma backend: filter={"source": doc_name} is evaluated server-side
+    inside the database — only matching chunks are scanned and scored.
+
+  - FAISS backend: FAISS has no native server-side filtering. We over-fetch
+    (top_k * FAISS_FILTER_OVERSAMPLE) results and apply the source filter
+    client-side, then truncate to top_k. This trades a small amount of
+    latency for architectural simplicity.
 """
 from __future__ import annotations
 
@@ -13,13 +19,14 @@ from typing import List, Optional, Tuple
 
 from langchain_core.documents import Document
 
-from config.settings import TOP_K, SIMILARITY_THRESHOLD
-from src.ingestion.vector_store import (
-    get_global_store,
-    get_store_for_doc,
-)
+from config.settings import TOP_K, SIMILARITY_THRESHOLD, VECTOR_STORE_BACKEND
+from src.ingestion.vector_store import get_global_store
 
 logger = logging.getLogger(__name__)
+
+# When FAISS is used with a doc_name filter, fetch this many extra results
+# before client-side filtering so we still return up to top_k matches.
+_FAISS_FILTER_OVERSAMPLE: int = 20
 
 
 def retrieve_chunks(
@@ -28,52 +35,98 @@ def retrieve_chunks(
     threshold: float = SIMILARITY_THRESHOLD,
     doc_name: Optional[str] = None,
 ) -> List[Tuple[Document, float]]:
-    """Perform semantic similarity search.
+    """
+    Perform a semantic similarity search over the global vector store.
 
     Args:
-        query: User's question.
-        top_k: Number of chunks to retrieve.
-        threshold: Minimum similarity score to include.
-        doc_name: If provided, search only this document's store.
-                  If None, search across all documents.
+        query:     The user's question or message.
+        top_k:     Maximum number of chunks to return after filtering.
+        threshold: Minimum relevance score (0–1) to include a chunk.
+                   Chunks below this score are discarded unless no chunk
+                   exceeds it, in which case the single top result is
+                   returned to prevent the LLM receiving no context.
+        doc_name:  When provided, results are restricted to chunks whose
+                   ``source`` metadata matches this value exactly.
+                   When None, the entire store is searched.
 
     Returns:
-        List of ``(Document, score)`` tuples sorted by relevance.
+        List of ``(Document, score)`` tuples ordered by descending score.
+        Empty list if the store is unavailable or no chunks are found.
     """
-    # Select appropriate store
     try:
-        if doc_name:
-            store = get_store_for_doc(doc_name)
-        else:
-            store = get_global_store()
-    except RuntimeError as e:
-        logger.warning("Store not available: %s", e)
+        store = get_global_store()
+    except Exception as exc:
+        logger.warning("Global store unavailable: %s", exc)
         return []
 
-    # Retrieve with scores
     try:
-        results: List[Tuple[Document, float]] = (
-            store.similarity_search_with_relevance_scores(query, k=top_k)
+        results: List[Tuple[Document, float]] = _search(
+            store, query, top_k, doc_name
         )
-        logger.info(results)
-    except Exception as e:
-        logger.error("Similarity search failed: %s", e)
+    except Exception as exc:
+        logger.error("Similarity search failed: %s", exc)
+        return []
+    finally:
+        # Release Chroma SQLite handles (no-op for FAISS)
+        del store
+
+    if not results:
+        logger.debug(
+            "No results returned for query='%.60s' (doc=%s).",
+            query, doc_name or "all",
+        )
         return []
 
-
-    # Apply threshold filter
+    # Apply relevance threshold
     filtered = [(doc, score) for doc, score in results if score >= threshold]
 
-    if not filtered and results:
+    if not filtered:
+        # Nothing clears the bar — return the single best result so the LLM
+        # always gets some context rather than a bare "no context" prompt.
         logger.warning(
-            "No chunks above threshold %.2f; returning top result anyway.", threshold
+            "No chunks above threshold %.3f; returning top result "
+            "(score=%.3f) as fallback.",
+            threshold, results[0][1],
         )
         filtered = results[:1]
 
     logger.debug(
-        "Retrieved %d chunks for query='%s' (doc=%s).",
-        len(filtered),
-        query[:60],
-        doc_name or "all",
+        "Retrieved %d chunk(s) for query='%.60s' (doc=%s, threshold=%.3f).",
+        len(filtered), query, doc_name or "all", threshold,
     )
     return filtered
+
+
+def _search(
+    store,
+    query: str,
+    top_k: int,
+    doc_name: Optional[str],
+) -> List[Tuple[Document, float]]:
+    """
+    Dispatch the similarity search to the correct backend strategy.
+
+    Separated from ``retrieve_chunks`` so error handling and store
+    lifecycle management stay in the caller.
+    """
+    if doc_name is None:
+        # No filter: straightforward top-k search across all documents
+        return store.similarity_search_with_relevance_scores(query, k=top_k)
+
+    if VECTOR_STORE_BACKEND == "chroma":
+        # Chroma evaluates the filter inside the database — efficient
+        return store.similarity_search_with_relevance_scores(
+            query,
+            k=top_k,
+            filter={"source": doc_name},
+        )
+
+    # FAISS: no server-side filtering — over-fetch then filter client-side
+    fetch_k = top_k * _FAISS_FILTER_OVERSAMPLE
+    raw = store.similarity_search_with_relevance_scores(query, k=fetch_k)
+    filtered = [
+        (doc, score)
+        for doc, score in raw
+        if doc.metadata.get("source") == doc_name
+    ]
+    return filtered[:top_k]

@@ -14,11 +14,11 @@ chunk_overlap: 150
 
 # Retrieval
 top_k: 5
-similarity_threshold: 0.25
+similarity_threshold: 0.00
 
 # Vector store
 vector_store_backend: chroma
-chroma_collection_prefix: "contract_"
+chroma_collection_prefix: "file"
 chat_history_collection: chat_history
 
 # Multi-document

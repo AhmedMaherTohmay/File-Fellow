@@ -40,9 +40,9 @@ def _get(key: str, default):
 
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-VECTOR_STORE_DIR: Path = BASE_DIR / "vector_store"
-UPLOAD_DIR: Path = BASE_DIR / "uploads"
-LOG_DIR: Path = BASE_DIR / "logs"
+VECTOR_STORE_DIR: Path = BASE_DIR / "data" / "vector_store"
+UPLOAD_DIR: Path = BASE_DIR / "data" / "uploads"
+LOG_DIR: Path = BASE_DIR / "data" / "logs"
 
 for _d in (VECTOR_STORE_DIR, UPLOAD_DIR, LOG_DIR):
     _d.mkdir(parents=True, exist_ok=True)

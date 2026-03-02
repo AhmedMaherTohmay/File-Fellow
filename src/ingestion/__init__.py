@@ -1,56 +1,102 @@
 """
 Top-level ingestion pipeline.
-Orchestrates: parse → chunk → embed → store.
+Orchestrates: sanitize → parse → chunk → embed → store.
+
+Public surface:
+  ingest_document(file_path)  – full pipeline, returns result metadata dict
+  sanitize_filename(filename)  – exported so callers (API, UI) can derive the
+                                 safe name *before* writing the file to disk,
+                                 avoiding an unsafe name ever touching the FS.
 """
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 from config.settings import UPLOAD_DIR
-from src.ingestion.parser import parse_document
 from src.ingestion.chunker import chunk_pages
+from src.ingestion.parser import parse_document
 from src.ingestion.vector_store import add_document
 
 logger = logging.getLogger(__name__)
 
-def _safe_copy(src: Path, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    with src.open("rb") as fsrc, dst.open("wb") as fdst:
-        shutil.copyfileobj(fsrc, fdst)
 
+# ── Filename sanitization ──────────────────────────────────────────────────
+
+def sanitize_filename(filename: str) -> str:
+    # Step 1: strip directory components — Path.name gives the bare filename
+    bare = Path(filename).name
+
+    # Step 2: split stem and extension; normalise extension case
+    stem = Path(bare).stem
+    suffix = Path(bare).suffix.lower()   # e.g. ".PDF" → ".pdf"
+
+    # Step 3–4: replace unsafe chars, collapse underscores, strip edges
+    safe_stem = re.sub(r"[^\w\-]", "_", stem)       # \w = [a-zA-Z0-9_]
+    safe_stem = re.sub(r"_+", "_", safe_stem).strip("_")
+
+    # Step 5–6: length cap and empty-stem fallback
+    safe_stem = safe_stem[:100] or "unnamed"
+
+    return f"{safe_stem}{suffix}"
+
+
+# ── Ingestion pipeline ─────────────────────────────────────────────────────
 
 def ingest_document(file_path: "str | Path") -> Dict[str, Any]:
-    """Parse, chunk, embed, and store a document.
-
-    Args:
-        file_path: Path to a PDF or DOCX file.
-
-    Returns:
-        Dict with ``filename``, ``num_pages``, ``num_chunks``.
     """
-    file_path = Path(file_path)
+    Full ingestion pipeline: sanitize → copy → parse → chunk → store.
+    """
+    file_path = Path(file_path).resolve()
 
-    # Ensure file is in uploads directory
-    dest = UPLOAD_DIR / file_path.name
-    if file_path.resolve() != dest.resolve():
-        # dest.write_bytes(file_path.read_bytes())
-        shutil.copy2(str(file_path), str(dest))
-        logger.info("Copied '%s' to uploads directory.", file_path.name)
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: '{file_path}'")
 
-    # 1. Parse
+    # ── 1. Sanitize filename ───────────────────────────────────────────────
+    safe_name = sanitize_filename(file_path.name)
+
+    if safe_name != file_path.name:
+        logger.info(
+            "Filename sanitized: '%s' → '%s'", file_path.name, safe_name
+        )
+
+    # ── 2. Ensure file lives in UPLOAD_DIR under its safe name ────────────
+    dest = UPLOAD_DIR / safe_name
+
+    if file_path != dest:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(file_path, dest)
+        logger.debug("Copied '%s' → '%s'.", file_path, dest)
+
+        # Remove the unsafe-named original only if it was already inside
+        if file_path.parent.resolve() == UPLOAD_DIR.resolve():
+            try:
+                file_path.unlink()
+                logger.debug("Removed unsafe-named original '%s'.", file_path)
+            except OSError as exc:
+                logger.warning(
+                    "Could not remove unsafe-named original '%s': %s",
+                    file_path, exc,
+                )
+
+    # ── 3. Parse ──────────────────────────────────────────────────────────
     pages = parse_document(dest)
     if not pages:
-        raise ValueError(f"No text could be extracted from '{file_path.name}'.")
+        raise ValueError(
+            f"No text could be extracted from '{safe_name}'. "
+            "The file may be empty, image-only, or password-protected."
+        )
 
-    # 2. Flat chunking
-    chunks = chunk_pages(pages, doc_id=file_path.name)
+    # ── 4. Chunk ──────────────────────────────────────────────────────────
+    # doc_id uses the sanitized name so chunk IDs are stable across re-ingests
+    chunks = chunk_pages(pages, doc_id=safe_name)
 
-    # 3. Build vector store(s)
+    # ── 5. Store ──────────────────────────────────────────────────────────
     add_document(
-        doc_name=file_path.name,
+        doc_name=safe_name,
         chunks=chunks,
         metadata={
             "num_pages": len(pages),
@@ -59,13 +105,11 @@ def ingest_document(file_path: "str | Path") -> Dict[str, Any]:
     )
 
     logger.info(
-        "Ingested '%s': %d pages, %d chunks.",
-        file_path.name,
-        len(pages),
-        len(chunks),
+        "Ingested '%s': %d page(s), %d chunk(s).",
+        safe_name, len(pages), len(chunks),
     )
     return {
-        "filename": file_path.name,
+        "filename": safe_name,
         "num_pages": len(pages),
         "num_chunks": len(chunks),
     }
