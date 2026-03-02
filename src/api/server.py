@@ -1,32 +1,42 @@
 """
 FastAPI backend with LangServe endpoints.
 
-Endpoints:
-  POST /ingest                    – Upload & ingest a document (async)
-  POST /ingest/batch              – Upload multiple documents
-  GET  /documents                 – List all ingested documents
-  DELETE /documents/{name}        – Remove a document
-  POST /qa                        – Ask a question (single/cross-doc)
-  POST /summarize                 – Summarize a document
-  POST /sessions/{id}/end         – End a session and persist history
-  GET  /health                    – Health check
-  /qa-langserve/playground        – LangServe interactive playground
+Endpoints
+---------
+POST   /ingest                 — Upload & ingest a single document
+POST   /ingest/batch           — Upload multiple documents at once
+GET    /documents              — List all ingested documents with metadata
+DELETE /documents/{name}       — Remove a document
+POST   /qa                     — Ask a question (single doc or cross-doc)
+POST   /summarize              — Summarise a document
+GET    /health                 — Health check + system status
+/qa-langserve/playground       — LangServe interactive playground
+
+Schemas have been moved to src/api/schema.py for reusability.
 """
 from __future__ import annotations
 
 import logging
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 from langchain_core.runnables import RunnableLambda
 from langserve import add_routes
 
 from config.settings import UPLOAD_DIR, API_HOST, API_PORT
-from src.ingestion import ingest_document, sanitize_filename
+from src.core.utils import sanitize_filename          # moved from ingestion/__init__
+from src.core.exceptions import ExtractionError
+from src.api.schema import (                          # schemas live in schema.py
+    QARequest,
+    QAResponse,
+    IngestResponse,
+    BatchIngestResponse,
+    SummarizeRequest,
+)
+from src.ingestion import ingest_document
 from src.ingestion.vector_store import (
     store_is_ready,
     get_ingested_documents,
@@ -36,15 +46,16 @@ from src.ingestion.vector_store import (
 from src.llm.qa_chain import answer_question
 from src.llm.summarizer import summarize_document
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="File Fellow",
-    description="Multi-document RAG-powered contract assistant with session memory",
-    version="1.0.0",
+    description="Multi-document RAG-powered document assistant with session memory",
+    version="2.0.0",
 )
 
+# NOTE: CORS is intentionally permissive for local development.
+# Before deploying publicly, restrict allow_origins to specific trusted origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -52,42 +63,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Pydantic models ────────────────────────────────────────────────────────
-
-class QARequest(BaseModel):
-    question: str = Field(..., min_length=1, description="User's question")
-    history: Optional[List[dict]] = Field(default=[], description="Recent conversation history")
-    doc_name: Optional[str] = Field(default=None, description="Target document (None = all docs)")
-    session_id: str = Field(default="default", description="Session ID for memory")
-
-
-class QAResponse(BaseModel):
-    answer: str
-    sources: List[dict]
-    session_id: str
-
-
-class IngestResponse(BaseModel):
-    filename: str
-    num_pages: int
-    num_chunks: int
-    message: str
-
-
-class BatchIngestResponse(BaseModel):
-    results: List[IngestResponse]
-    errors: List[dict]
-
-
-class SummarizeRequest(BaseModel):
-    filename: str
+_ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
-    """Health check with system status."""
+    """Health check: returns system status and list of ingested documents."""
     docs = get_ingested_documents()
     return {
         "status": "ok",
@@ -99,18 +82,16 @@ async def health():
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(file: UploadFile = File(...)):
-    """Upload and ingest a PDF or DOCX document.
-
-    The filename is sanitized before being written to disk so that no
-    unsafe name (e.g. path traversal sequences, special characters) ever
-    touches the filesystem.
     """
-    allowed = {".pdf", ".docx", ".doc"}
+    Upload and ingest a PDF or DOCX document.
+
+    The filename is sanitised before being written to disk so that
+    path-traversal sequences and OS-unsafe characters never touch the FS.
+    """
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in allowed:
+    if suffix not in _ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type: '{suffix}'")
 
-    # Sanitize before writing — the safe name is what lands on disk
     safe_name = sanitize_filename(file.filename)
     dest = UPLOAD_DIR / safe_name
 
@@ -118,45 +99,44 @@ async def ingest(file: UploadFile = File(...)):
         dest.parent.mkdir(parents=True, exist_ok=True)
         with dest.open("wb") as f:
             shutil.copyfileobj(file.file, f)
-    except OSError as e:
-        logger.error("Failed to save uploaded file '%s': %s", safe_name, e)
-        raise HTTPException(500, f"Could not save file: {e}") from e
+    except OSError as exc:
+        logger.error("Failed to save uploaded file '%s': %s", safe_name, exc)
+        raise HTTPException(500, f"Could not save file: {exc}") from exc
 
     try:
         result = ingest_document(dest)
-    except Exception as e:
-        logger.error("Ingestion failed for '%s': %s", safe_name, e)
-        raise HTTPException(500, f"Ingestion error: {e}") from e
+    except ExtractionError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        logger.error("Ingestion failed for '%s': %s", safe_name, exc)
+        raise HTTPException(500, f"Ingestion error: {exc}") from exc
 
     return IngestResponse(
         **result,
-        message=f"Successfully ingested '{result['filename']}' "
-                f"({result['num_pages']} pages, {result['num_chunks']} chunks).",
+        message=(
+            f"Successfully ingested '{result['filename']}' "
+            f"({result['num_pages']} pages, {result['num_chunks']} chunks)."
+        ),
     )
 
 
 @app.post("/ingest/batch", response_model=BatchIngestResponse)
 async def ingest_batch(files: List[UploadFile] = File(...)):
-    """Upload and ingest multiple documents at once.
+    """
+    Upload and ingest multiple documents in a single request.
 
-    Each filename is sanitized independently before being written to disk.
-    Files that fail type validation or ingestion are collected in ``errors``
+    Files that fail type-validation or ingestion are collected in ``errors``
     so the rest of the batch still completes.
     """
-    allowed = {".pdf", ".docx", ".doc"}
-    results = []
-    errors = []
+    results: List[IngestResponse] = []
+    errors: List[dict] = []
 
     for file in files:
         suffix = Path(file.filename).suffix.lower()
-        if suffix not in allowed:
-            errors.append({
-                "filename": file.filename,
-                "error": f"Unsupported file type: '{suffix}'",
-            })
+        if suffix not in _ALLOWED_EXTENSIONS:
+            errors.append({"filename": file.filename, "error": f"Unsupported file type: '{suffix}'"})
             continue
 
-        # Sanitize before writing — safe name is what lands on disk
         safe_name = sanitize_filename(file.filename)
         dest = UPLOAD_DIR / safe_name
 
@@ -164,9 +144,9 @@ async def ingest_batch(files: List[UploadFile] = File(...)):
             dest.parent.mkdir(parents=True, exist_ok=True)
             with dest.open("wb") as f:
                 shutil.copyfileobj(file.file, f)
-        except OSError as e:
-            errors.append({"filename": file.filename, "error": f"Could not save file: {e}"})
-            logger.error("Failed to save '%s': %s", safe_name, e)
+        except OSError as exc:
+            errors.append({"filename": file.filename, "error": f"Could not save file: {exc}"})
+            logger.error("Failed to save '%s': %s", safe_name, exc)
             continue
 
         try:
@@ -175,23 +155,25 @@ async def ingest_batch(files: List[UploadFile] = File(...)):
                 **result,
                 message=f"Ingested '{result['filename']}' ({result['num_chunks']} chunks).",
             ))
-        except Exception as e:
-            errors.append({"filename": file.filename, "error": str(e)})
-            logger.error("Ingestion error for '%s': %s", safe_name, e)
+        except ExtractionError as exc:
+            errors.append({"filename": file.filename, "error": str(exc)})
+        except Exception as exc:
+            errors.append({"filename": file.filename, "error": str(exc)})
+            logger.error("Ingestion error for '%s': %s", safe_name, exc)
 
     return BatchIngestResponse(results=results, errors=errors)
 
 
 @app.get("/documents")
 async def list_documents():
-    """List all ingested documents with metadata."""
+    """Return all ingested documents with their registry metadata."""
     registry = get_document_registry()
     return {"documents": registry, "count": len(registry)}
 
 
 @app.delete("/documents/{doc_name}")
 async def delete_document(doc_name: str):
-    """Remove an ingested document from the system."""
+    """Remove an ingested document and all its chunks from the system."""
     success = remove_document(doc_name)
     if not success:
         raise HTTPException(404, f"Document '{doc_name}' not found.")
@@ -200,7 +182,12 @@ async def delete_document(doc_name: str):
 
 @app.post("/qa", response_model=QAResponse)
 async def qa(req: QARequest):
-    """Answer a question grounded in one or all ingested documents."""
+    """
+    Answer a question grounded in one or all ingested documents.
+
+    Returns the answer, source citations, and the session_id so callers
+    can maintain session continuity across requests.
+    """
     if not store_is_ready():
         raise HTTPException(400, "No documents ingested yet. Please upload a document first.")
 
@@ -216,34 +203,35 @@ async def qa(req: QARequest):
             sources=result["sources"],
             session_id=req.session_id,
         )
-    except Exception as e:
-        logger.error("Q&A error: %s", e)
-        raise HTTPException(500, f"Q&A error: {e}") from e
+    except Exception as exc:
+        logger.error("Q&A error: %s", exc)
+        raise HTTPException(500, f"Q&A error: {exc}") from exc
 
 
 @app.post("/summarize")
 async def summarize(req: SummarizeRequest):
-    """Summarize the specified document."""
+    """Generate a structured summary of the specified document."""
     try:
         summary = summarize_document(req.filename)
         return {"filename": req.filename, "summary": summary}
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e)) from e
-    except Exception as e:
-        logger.error("Summarization error: %s", e)
-        raise HTTPException(500, f"Summarization error: {e}") from e
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Exception as exc:
+        logger.error("Summarization error: %s", exc)
+        raise HTTPException(500, f"Summarization error: {exc}") from exc
 
 
 # ── LangServe playground ───────────────────────────────────────────────────
 
 def _qa_runnable(inputs: dict) -> dict:
-    """LangServe-compatible wrapper for the Q&A chain."""
+    """LangServe-compatible wrapper around the Q&A chain."""
     return answer_question(
         question=inputs.get("question", ""),
         history=inputs.get("history", []),
         doc_name=inputs.get("doc_name"),
         session_id=inputs.get("session_id", "default"),
     )
+
 
 add_routes(
     app,
