@@ -77,7 +77,7 @@ DEFAULT_QUERY_MODE: str = _get("DEFAULT_QUERY_MODE", "all")  # "all" | "<doc_nam
 
 # ── Session / Memory ──────────────────────────────────────────────────────
 SESSION_HISTORY_TOP_K: int = int(_get("SESSION_HISTORY_TOP_K", "3"))
-MAX_SESSION_TURNS: int = int(_get("MAX_SESSION_TURNS", "50"))
+MAX_SESSION_TURNS: int = int(_get("MAX_SESSION_TURNS", "6"))
 
 # ── FastAPI / LangServe ───────────────────────────────────────────────────
 API_HOST: str = _get("API_HOST", "0.0.0.0")
