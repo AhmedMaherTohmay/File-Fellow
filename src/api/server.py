@@ -116,6 +116,9 @@ async def ingest(file: UploadFile = File(...)):
         message=(
             f"Successfully ingested '{result['filename']}' "
             f"({result['num_pages']} pages, {result['num_chunks']} chunks)."
+        ) if not result.get("duplicate") else (
+            f"'{result['filename']}' is a duplicate of an already-ingested document. "
+            "No re-ingestion was performed."
         ),
     )
 
@@ -151,10 +154,12 @@ async def ingest_batch(files: List[UploadFile] = File(...)):
 
         try:
             result = ingest_document(dest)
-            results.append(IngestResponse(
-                **result,
-                message=f"Ingested '{result['filename']}' ({result['num_chunks']} chunks).",
-            ))
+            msg = (
+                f"Ingested '{result['filename']}' ({result['num_chunks']} chunks)."
+                if not result.get("duplicate")
+                else f"'{result['filename']}' is a duplicate — skipped."
+            )
+            results.append(IngestResponse(**result, message=msg))
         except ExtractionError as exc:
             errors.append({"filename": file.filename, "error": str(exc)})
         except Exception as exc:
@@ -197,11 +202,15 @@ async def qa(req: QARequest):
             history=req.history,
             doc_name=req.doc_name,
             session_id=req.session_id,
+            user_id=req.user_id,
+            conversation_id=req.conversation_id,
         )
         return QAResponse(
             answer=result["answer"],
             sources=result["sources"],
             session_id=req.session_id,
+            user_id=req.user_id,
+            conversation_id=req.conversation_id,
         )
     except Exception as exc:
         logger.error("Q&A error: %s", exc)
