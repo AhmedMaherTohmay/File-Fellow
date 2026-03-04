@@ -53,9 +53,9 @@ def run_api() -> None:
 
 
 def run_ui() -> None:
-    # from src.ui.app import launch
+    from src.ui.app import launch
     logger.info("Starting Gradio UI...")
-    # launch()
+    launch()
 
 
 def main() -> None:
