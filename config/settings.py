@@ -79,6 +79,12 @@ DEFAULT_QUERY_MODE: str = _get("DEFAULT_QUERY_MODE", "all")  # "all" | "<doc_nam
 SESSION_HISTORY_TOP_K: int = int(_get("SESSION_HISTORY_TOP_K", "3"))
 MAX_SESSION_TURNS: int = int(_get("MAX_SESSION_TURNS", "6"))
 
+# Separate threshold for semantic history retrieval.
+HISTORY_SCORE_THRESHOLD: float = float(_get("HISTORY_SCORE_THRESHOLD", "0.25"))
+
+# History turns older than this many days are purged at startup.
+HISTORY_TTL_DAYS: int = int(_get("HISTORY_TTL_DAYS", "7"))
+
 # ── FastAPI / LangServe ───────────────────────────────────────────────────
 API_HOST: str = _get("API_HOST", "0.0.0.0")
 API_PORT: int = int(_get("API_PORT", "8000"))

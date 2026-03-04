@@ -14,7 +14,7 @@ chunk_overlap: 150
 
 # Retrieval
 top_k: 5
-similarity_threshold: 0.00
+similarity_threshold: 0.30
 
 # Vector store
 vector_store_backend: chroma
@@ -27,7 +27,15 @@ default_query_mode: all
 
 # Session memory
 session_history_top_k: 3
-max_session_turns: 50
+# Maximum recent conversation turns injected into the LLM prompt.
+# Also governs the history window in the chat UI.
+max_session_turns: 6
+
+# History store score threshold — kept lower than the document retrieval
+history_score_threshold: 0.25
+
+# Number of days to keep history turns in the vector store before purging.
+history_ttl_days: 7
 
 # Server
 api_host: "0.0.0.0"
