@@ -102,7 +102,7 @@ def sample_chunks(doc_name: Optional[str] = None, n: int = 2) -> List[Any]:
     if not store_is_ready():
         raise RuntimeError(
             "No documents are ingested. "
-            "Please ingest Fraud_Detection_System_Design.pdf first."
+            "Please ingest at least one document first."
         )
 
     store = get_store_for_doc(doc_name) if doc_name else get_global_store()
@@ -409,15 +409,17 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             "LLM-as-Judge evaluation pipeline for File Fellow. "
-            "Requires Fraud_Detection_System_Design.pdf to be ingested."
+            "Requires at least one ingested document."
         )
     )
     parser.add_argument(
         "--doc_name",
-        default="Fraud_Detection_System_Design.pdf",
-        help="Name of the ingested document to evaluate against "
-             "(default: Fraud_Detection_System_Design.pdf). "
-             "Pass 'all' to use the global store.",
+        default="all",
+        help=(
+            "Name of the ingested document to evaluate against "
+            "(default: 'all' — uses the entire global store). "
+            "Pass an exact filename to scope evaluation to one document."
+        ),
     )
     parser.add_argument(
         "--num_samples",
