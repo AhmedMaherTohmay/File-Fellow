@@ -63,7 +63,7 @@ def sources_html(sources: list) -> str:
 
 
 def upload_status_html(file_objs) -> str:
-    from src.ingestion import ingest_document
+    from src.ingestion.pipeline import ingest_document
     import logging
     logger = logging.getLogger(__name__)
 

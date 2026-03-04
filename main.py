@@ -49,7 +49,7 @@ def run_api() -> None:
     import uvicorn
     from config.settings import API_HOST, API_PORT
     logger.info("Starting FastAPI on http://%s:%d", API_HOST, API_PORT)
-    uvicorn.run("src.api.server:app", host=API_HOST, port=API_PORT, reload=False, log_level="warning")
+    uvicorn.run("src.api.app:app", host=API_HOST, port=API_PORT, reload=False, log_level="warning")
 
 
 def run_ui() -> None:
