@@ -91,10 +91,9 @@ def chunk_pages(
                     "chunk_id": chunk_id,
                     "doc_id": resolved_doc_id,
 
-                    # Provenance
+                    # Source info & type
                     "source": page_info["source"],
                     "file_type": page_info.get("file_type"),
-                    "file_path": page_info.get("file_path"),
 
                     # Positioning
                     "page": page_info["page"],

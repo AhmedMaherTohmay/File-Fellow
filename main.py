@@ -28,21 +28,27 @@ logger = logging.getLogger(__name__)
 def run_migrations() -> None:
     """
     Run any pending one-time data migrations before the servers start.
-
-    Currently handles:
-      - Removing stale per-document Chroma collections left over from the
-        old dual-store architecture (data is preserved in the global store).
     """
     try:
         from src.ingestion.vector_store import migrate_per_doc_collections
         removed = migrate_per_doc_collections()
         if removed:
-            logger.info(
-                "Startup migration: cleaned up %d stale collection(s).", removed
-            )
+            logger.info("Startup migration: cleaned up %d stale collection(s).", removed)
     except Exception as exc:
-        # A migration failure must never prevent the application from starting
         logger.warning("Startup migration failed (non-fatal): %s", exc)
+
+
+def run_history_purge() -> None:
+    """
+    Purge history turns older than HISTORY_TTL_DAYS at startup.
+    """
+    try:
+        from src.memory.history_store import purge_old_turns
+        purged = purge_old_turns()
+        if purged:
+            logger.info("Startup history purge: removed %d old turn(s).", purged)
+    except Exception as exc:
+        logger.warning("Startup history purge failed (non-fatal): %s", exc)
 
 
 def run_api() -> None:
@@ -73,8 +79,9 @@ def main() -> None:
     group.add_argument("--api", action="store_true", help="Run FastAPI backend only")
     args = parser.parse_args()
 
-    # Always run migrations first, before any server starts
+    # Always run migrations and cleanup first, before any server starts
     run_migrations()
+    run_history_purge()
 
     if args.api:
         run_api()
