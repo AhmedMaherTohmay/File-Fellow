@@ -1,69 +1,86 @@
 """
-Contract summarization using map-reduce for large documents.
-Supports summarizing a specific document or all ingested documents.
+Document summarization using map-reduce over stored chunks.
 """
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from typing import List
 
-from config.settings import UPLOAD_DIR
-from src.ingestion.parser import parse_document
+from langchain_core.documents import Document
+
+from src.ingestion.vector_store import get_chunks_for_doc
 from src.llm.llm_factory import get_llm
 from src.llm.prompts import SUMMARY_PROMPT
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_CHUNK_CHARS = 12_000
-MAX_SUMMARY_CHUNKS = 5
+# Target character budget per summarization segment.
+SUMMARY_SEGMENT_CHARS = 12_000
+
+# Maximum number of map segments before the reduce step.
+# Prevents runaway LLM calls on extremely large documents.
+MAX_SUMMARY_SEGMENTS = 5
 
 
 def _summarize_text(text: str) -> str:
-    """Summarize a single text block."""
+    """Summarize a single text block using the summary prompt."""
     llm = get_llm()
     chain = SUMMARY_PROMPT | llm
     response = chain.invoke({"contract_text": text})
     return response.content if hasattr(response, "content") else str(response)
 
 
-def summarize_document(filename: str) -> str:
-    """Produce a structured summary of an ingested document.
-
-    Uses map-reduce: summarizes large docs in chunks then merges results.
-
-    Args:
-        filename: Name of the previously uploaded file (in UPLOAD_DIR).
-
-    Returns:
-        Structured summary text.
-
-    Raises:
-        FileNotFoundError: If the file is not in the uploads directory.
+def _group_chunks_into_segments(chunks: List[Document]) -> List[str]:
     """
-    file_path = UPLOAD_DIR / filename
-    if not file_path.exists():
-        raise FileNotFoundError(f"'{filename}' not found in uploads directory.")
+    Group ordered chunks into segments of at most SUMMARY_SEGMENT_CHARS.
+    """
+    segments: List[str] = []
+    current_parts: List[str] = []
+    current_len = 0
 
-    pages = parse_document(file_path)
-    full_text = "\n\n".join(p["text"] for p in pages)
+    for chunk in chunks:
+        text = chunk.page_content
+        if current_len + len(text) > SUMMARY_SEGMENT_CHARS and current_parts:
+            segments.append("\n\n".join(current_parts))
+            current_parts = []
+            current_len = 0
+        current_parts.append(text)
+        current_len += len(text)
 
-    if not full_text.strip():
-        return "Could not extract text from this document."
+    if current_parts:
+        segments.append("\n\n".join(current_parts))
 
-    # Split into at most MAX_SUMMARY_CHUNKS segments
-    step = max(len(full_text) // MAX_SUMMARY_CHUNKS, SUMMARY_CHUNK_CHARS)
-    segments = [full_text[i : i + step] for i in range(0, len(full_text), step)]
-    segments = segments[:MAX_SUMMARY_CHUNKS]
+    return segments[:MAX_SUMMARY_SEGMENTS]
+
+
+def summarize_document(filename: str) -> str:
+    """
+    Produce a structured summary of an ingested document.
+
+    Retrieves the document's chunks from the vector store (ordered by
+    global_chunk_index), groups them into segments, and applies map-reduce
+    summarization.
+    """
+    chunks = get_chunks_for_doc(filename)
+
+    if not chunks:
+        raise ValueError(
+            f"No chunks found for '{filename}'. "
+            "The document may not be ingested or the vector store may be unavailable."
+        )
+
+    segments = _group_chunks_into_segments(chunks)
 
     if len(segments) == 1:
-        logger.info("Summarizing '%s' in a single pass.", filename)
+        logger.info("Summarizing '%s' in a single pass (%d chunks).", filename, len(chunks))
         return _summarize_text(segments[0])
 
-    # Map: summarize each segment
-    logger.info("Summarizing '%s' in %d segments (map-reduce).", filename, len(segments))
+    # Map phase: summarize each segment independently.
+    logger.info("Summarizing '%s' in %d segments (%d chunks total, map-reduce).",
+                filename, len(segments), len(chunks))
     partial_summaries = [_summarize_text(seg) for seg in segments]
 
-    # Reduce: merge partial summaries
+    # Reduce phase: merge partial summaries into one coherent summary.
     combined = "\n\n===\n\n".join(partial_summaries)
     merge_prompt = (
         "You have several partial summaries of the same document. "
