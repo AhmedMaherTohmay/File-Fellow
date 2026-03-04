@@ -60,7 +60,7 @@ def get_llm():
         logger.exception("Failed to initialize Groq LLM")
         raise RuntimeError(f"Groq LLM initialization failed: {e}") from e
 
-
+@lru_cache(maxsize=1)
 def get_llm_for_eval():
     """Return an LLM instance suitable for evaluation (judge role).
     Uses the same model but with slightly higher temperature for diversity.

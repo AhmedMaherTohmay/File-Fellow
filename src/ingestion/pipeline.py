@@ -16,7 +16,7 @@ from src.core.utils import sanitize_filename, file_content_hash
 from src.core.exceptions import ExtractionError
 from src.ingestion.chunker import chunk_pages
 from src.ingestion.parser import parse_document
-from src.ingestion.vector_store import add_document, get_document_registry
+from src.storage.document_store import add_document, get_document_registry
 
 logger = logging.getLogger(__name__)
 

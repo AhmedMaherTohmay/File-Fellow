@@ -12,7 +12,6 @@ POST   /summarize              — Summarise a document
 GET    /health                 — Health check + system status
 /qa-langserve/playground       — LangServe interactive playground
 
-Schemas have been moved to src/api/schema.py for reusability.
 """
 from __future__ import annotations
 
@@ -27,9 +26,9 @@ from langchain_core.runnables import RunnableLambda
 from langserve import add_routes
 
 from config.settings import UPLOAD_DIR, API_HOST, API_PORT
-from src.core.utils import sanitize_filename          # moved from ingestion/__init__
+from src.core.utils import sanitize_filename
 from src.core.exceptions import ExtractionError
-from src.api.schema import (                          # schemas live in schema.py
+from src.api.schema import (
     QARequest,
     QAResponse,
     IngestResponse,
@@ -37,14 +36,9 @@ from src.api.schema import (                          # schemas live in schema.p
     SummarizeRequest,
 )
 from src.ingestion import ingest_document
-from src.ingestion.vector_store import (
-    store_is_ready,
-    get_ingested_documents,
-    get_document_registry,
-    remove_document,
-)
-from src.llm.qa_chain import answer_question
-from src.llm.summarizer import summarize_document
+from src.storage.document_store import store_is_ready, get_ingested_documents, get_document_registry, remove_document
+from src.services.qa import answer_question
+from src.services.summary import summarize_document
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +48,6 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# NOTE: CORS is intentionally permissive for local development.
-# Before deploying publicly, restrict allow_origins to specific trusted origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -84,9 +76,6 @@ async def health():
 async def ingest(file: UploadFile = File(...)):
     """
     Upload and ingest a PDF or DOCX document.
-
-    The filename is sanitised before being written to disk so that
-    path-traversal sequences and OS-unsafe characters never touch the FS.
     """
     suffix = Path(file.filename).suffix.lower()
     if suffix not in _ALLOWED_EXTENSIONS:
@@ -111,16 +100,12 @@ async def ingest(file: UploadFile = File(...)):
         logger.error("Ingestion failed for '%s': %s", safe_name, exc)
         raise HTTPException(500, f"Ingestion error: {exc}") from exc
 
-    return IngestResponse(
-        **result,
-        message=(
-            f"Successfully ingested '{result['filename']}' "
-            f"({result['num_pages']} pages, {result['num_chunks']} chunks)."
-        ) if not result.get("duplicate") else (
-            f"'{result['filename']}' is a duplicate of an already-ingested document. "
-            "No re-ingestion was performed."
-        ),
+    msg = (
+        f"Duplicate of '{result['duplicate_of']}' — skipped."
+        if result.get("duplicate")
+        else f"Ingested '{result['filename']}' ({result['num_pages']} pages, {result['num_chunks']} chunks)."
     )
+    return IngestResponse(**result, message=msg)
 
 
 @app.post("/ingest/batch", response_model=BatchIngestResponse)
@@ -155,9 +140,9 @@ async def ingest_batch(files: List[UploadFile] = File(...)):
         try:
             result = ingest_document(dest)
             msg = (
-                f"Ingested '{result['filename']}' ({result['num_chunks']} chunks)."
-                if not result.get("duplicate")
-                else f"'{result['filename']}' is a duplicate — skipped."
+                f"'{result['filename']}' is a duplicate — skipped."
+                if result.get("duplicate")
+                else f"Ingested '{result['filename']}' ({result['num_chunks']} chunks)."
             )
             results.append(IngestResponse(**result, message=msg))
         except ExtractionError as exc:
@@ -178,9 +163,7 @@ async def list_documents():
 
 @app.delete("/documents/{doc_name}")
 async def delete_document(doc_name: str):
-    """Remove an ingested document and all its chunks from the system."""
-    success = remove_document(doc_name)
-    if not success:
+    if not remove_document(doc_name):
         raise HTTPException(404, f"Document '{doc_name}' not found.")
     return {"message": f"Document '{doc_name}' removed successfully."}
 
@@ -189,9 +172,6 @@ async def delete_document(doc_name: str):
 async def qa(req: QARequest):
     """
     Answer a question grounded in one or all ingested documents.
-
-    Returns the answer, source citations, and the session_id so callers
-    can maintain session continuity across requests.
     """
     if not store_is_ready():
         raise HTTPException(400, "No documents ingested yet. Please upload a document first.")
@@ -223,7 +203,7 @@ async def summarize(req: SummarizeRequest):
     try:
         summary = summarize_document(req.filename)
         return {"filename": req.filename, "summary": summary}
-    except FileNotFoundError as exc:
+    except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     except Exception as exc:
         logger.error("Summarization error: %s", exc)
