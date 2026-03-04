@@ -1,294 +1,252 @@
-# 📜 File Fellow
 
-A local, multi-document RAG (Retrieval-Augmented Generation) assistant for contracts, insurance policies, and reports. Upload PDF or DOCX files and interact with them through a conversational chat interface — with grounded answers, source citations, and persistent session memory.
+# Document Q&A Assistant
+
+A production-grade RAG (Retrieval-Augmented Generation) system for querying PDF and DOCX documents through a conversational interface. Ask questions grounded in your uploaded documents, get cited answers, and maintain context across sessions.
 
 ---
 
 ## Features
 
-- **Multi-document ingestion** — Upload multiple PDF/DOCX files at once. Each document gets its own vector store collection, plus a global store for cross-document queries.
-- **Conversational Q&A** — Ask questions about your documents or just chat naturally. The assistant handles both without switching modes.
-- **Source citations** — Every document-grounded answer includes the filename, page number, and a relevance score.
-- **Document summarization** — One-click structured summaries using map-reduce for large files.
-- **Semantic session memory** — Conversation history is embedded and persisted in a vector store. Relevant past turns are retrieved automatically in future sessions.
-- **Per-user session isolation** — Each browser session gets a unique ID; history is scoped to that session.
-- **FastAPI backend + LangServe playground** — REST endpoints for all operations, plus an interactive `/qa-langserve/playground` for testing the RAG chain directly.
-- **LLM-as-Judge evaluation** — A full synthetic evaluation pipeline that samples document chunks, generates ground-truth Q&A pairs, runs the RAG agent, and scores the results.
+* **Multi-document RAG** — upload multiple PDFs or DOCX files; query across all of them or scope to a single document
+* **Source citations** — every answer includes the source filename, page number, and a relevance score
+* **Persistent session memory** — conversation history is embedded and retrieved semantically across browser sessions using a stable User ID
+* **Duplicate detection** — SHA-256 content hashing prevents the same document being ingested twice under different filenames
+* **Document summarization** — map-reduce summarization that respects sentence boundaries
+* **LLM-as-Judge evaluation** — automated pipeline that generates synthetic Q&A pairs and scores RAG answers on faithfulness, relevance, and correctness
+* **REST API** — full FastAPI backend with LangServe playground for direct integration
+* **Thread-safe writes** — a process-level write lock prevents SQLite contention when the API and UI run concurrently
 
 ---
 
 ## Architecture
 
 ```
-main.py
+smart_contract_assistant/
+├── config/
+│   ├── config.yaml          # All tuneable parameters
+│   └── settings.py          # Loads config + .env into typed constants
+│
 ├── src/
-│   ├── api/
-│   │   └── server.py          # FastAPI + LangServe endpoints
-│   ├── ingestion/
-│   │   ├── __init__.py        # Orchestrates parse → chunk → embed → store
-│   │   ├── parser.py          # PDF (PyMuPDF / pdfplumber) and DOCX parsing
-│   │   ├── chunker.py         # Recursive character text splitting
-│   │   ├── embedder.py        # SentenceTransformers (local, no API key)
-│   │   └── vector_store.py    # Chroma/FAISS multi-store management + registry
+│   ├── core/                # Shared utilities and exception types
+│   │   ├── utils.py         # sanitize_filename, normalise_score, file_content_hash
+│   │   └── exceptions.py    # Typed exception hierarchy
+│   │
+│   ├── ingestion/           # Document processing pipeline
+│   │   ├── pipeline.py      # Orchestrates: sanitize → dedup → parse → chunk → store
+│   │   ├── parser.py        # PDF (PyMuPDF + pdfplumber fallback) and DOCX parsing
+│   │   ├── chunker.py       # RecursiveCharacterTextSplitter with stable chunk IDs
+│   │   └── embedder.py      # SentenceTransformer embeddings (local, no API key)
+│   │
+│   ├── storage/             # All persistence — single source of truth for Chroma
+│   │   ├── document_store.py  # Global vector store, registry, write lock, migrations
+│   │   └── history_store.py   # Per-user conversation history with TTL purge
+│   │
 │   ├── retrieval/
-│   │   └── retriever.py       # Semantic similarity search with threshold filtering
-│   ├── llm/
-│   │   ├── llm_factory.py     # Groq LLM factory (cached)
-│   │   ├── prompts.py         # Q&A, summary, question-gen, and judge prompts
-│   │   ├── qa_chain.py        # Full RAG chain with history and citations
-│   │   └── summarizer.py      # Map-reduce document summarization
-│   ├── memory/
-│   │   └── history_store.py   # Semantic chat history persistence (Chroma)
+│   │   └── retriever.py     # Semantic search with score normalisation and threshold
+│   │
+│   ├── llm/                 # LLM infrastructure only
+│   │   ├── llm_factory.py       # Cached Groq client (get_llm, get_llm_for_eval)
+│   │   └── prompts.py       # Q&A, summarization, question-gen, and judge prompts
+│   │
+│   ├── services/            # Business logic — orchestrates storage + retrieval + LLM
+│   │   ├── qa.py            # answer_question(): RAG chain with history injection
+│   │   └── summary.py       # summarize_document(): chunk-aware map-reduce
+│   │
+│   ├── api/
+│   │   ├── server.py        # FastAPI routes
+│   │   └── schema.py        # Pydantic request/response models
+│   │
 │   └── ui/
-│       └── gradio_app.py      # Gradio web interface (3 tabs)
+│       ├── app.py           # gr.Blocks layout — mounts tabs, owns shared state
+│       ├── styles.py        # CSS design system + header HTML
+│       ├── formatters.py    # Pure HTML rendering functions (no Gradio imports)
+│       ├── session.py       # User ID and conversation ID management
+│       └── tabs/
+│           ├── upload.py    # Upload & Manage tab
+│           ├── chat.py      # Chat tab
+│           └── summary.py   # Summary tab
+│
 ├── scripts/
-│   └── evaluate.py            # LLM-as-Judge evaluation pipeline
-└── config/
-    ├── config.yaml            # Default settings
-    └── settings.py            # Loads yaml → .env → env vars
+│   └── evaluate.py          # LLM-as-Judge evaluation pipeline
+│
+├── main.py                  # Entrypoint — launches API + UI, runs startup tasks
+└── .env.example
 ```
 
-### RAG Pipeline
+### Key design decisions
 
-```
-User Message
-     │
-     ▼
- HistoryStore.retrieve_relevant()      ← semantic search over past turns
-     │
-     ▼
- retrieve_chunks()                     ← similarity search (per-doc or global)
-     │
-     ▼
- QA_PROMPT (context + history + question)
-     │
-     ▼
- Groq LLM (llama-3.3-70b-versatile)
-     │
-     ▼
- Answer + Source Citations
-     │
-     ▼
- HistoryStore.add_turn()               ← persist this turn for future retrieval
-```
+**Single global vector store.** All document chunks live in one Chroma collection tagged with `source` metadata. Per-document scoping is handled at query time via metadata filtering. This avoids the N-collections problem where N uploaded documents creates N Chroma stores.
 
-### Vector Store Design
+**Two-tier history.** In-session history (Gradio state, ephemeral) handles the current conversation. Semantic history (Chroma, persistent) retrieves relevant turns from *previous* sessions. The current conversation is explicitly excluded from semantic retrieval to prevent the LLM seeing the same dialogue twice.
 
-| Collection            | Contents                    | Used for                   |
-| --------------------- | --------------------------- | -------------------------- |
-| `contract_<doc_name>` | Chunks from one document    | Per-document Q&A           |
-| `all_contract_s`      | Chunks from all documents   | Cross-document Q&A         |
-| `chat_history`        | Embedded conversation turns | Semantic history retrieval |
+**Score normalisation.** LangChain's Chroma relevance scores can be negative when vectors are not unit-normalised. All raw scores are mapped to `[0, 1]` via `(raw + 1) / 2` before thresholding. Both the document retriever and the history store use the same normalisation function from `core/utils.py`, so threshold constants mean the same thing in both places.
 
 ---
 
-## Setup
+## Requirements
 
-### Prerequisites
+* Python 3.10+
+* A [Groq](https://console.groq.com/) API key (free tier is sufficient)
 
-- Python 3.10+
-- uv
-- A [Groq API key](https://console.groq.com/) (free tier available)
+---
 
-### Installation
+## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/AhmedMaherTohmay/File-Fellow.git
-cd file-fellow
+git clone https://github.com/AhmedMaherTohmay/File-Fellow
+cd File-Fellow
 
 # Create a virtual environment and install all dependencies
 uv sync
 ```
 
-### Configuration
+Copy the environment file and add your Groq API key:
 
-Create a `.env` file in the project root:
+```bash
+cp .env.example .env
+```
 
 ```env
-LLM_KEY=your_groq_api_key_here
-```
-
-All other settings have sensible defaults in `config/config.yaml`. Override any of them via environment variables or the yaml file:
-
-```yaml
-# config/config.yaml
-llm_provider: groq
-groq_model_id: llama-3.3-70b-versatile
-embedding_provider: sentence_transformers
-sentence_transformer_model: all-MiniLM-L6-v2
-chunk_size: 800
-chunk_overlap: 150
-top_k: 5
-similarity_threshold: 0.25
+LLM_KEY=gsk_your_groq_api_key_here
 ```
 
 ---
 
-## Running
+## Usage
 
-### Full application (API + UI)
-
-```bash
-uv run python main.py (uv)
-python main.py
-```
-
-- Gradio UI: [http://localhost:7860](http://localhost:7860/)
-- FastAPI docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-- LangServe playground: [http://localhost:8000/qa-langserve/playground](http://localhost:8000/qa-langserve/playground)
-
-### UI only
+### Launch both servers (default)
 
 ```bash
-uv run python main.py --ui
-python main.py --ui
+uv run main.py
 ```
 
-### API only
+* Gradio UI → `http://localhost:7860`
+* FastAPI + docs → `http://localhost:8000/docs`
+* LangServe playground → `http://localhost:8000/qa-langserve/playground`
+
+### Launch individually
 
 ```bash
-uv run python main.py --api
-python main.py --api
+uv run main.py --ui     # Gradio only
+uv run main.py --api    # FastAPI only
 ```
+
+### Workflow
+
+1. Go to the **Upload & Manage** tab and drop one or more PDF or DOCX files
+2. Switch to  **Chat** , enter a User ID or leave blank to generate one — **save this ID** to continue your session later
+3. Ask questions; answers include cited sources with page numbers and relevance scores
+4. Click **New Conversation** to start fresh while keeping your session history available as context
+5. Use the **Summary** tab for a structured overview of any ingested document
 
 ---
 
-## Using the Interface
+## Configuration
 
-### Tab 1 — Upload & Manage
+All parameters live in `config/config.yaml`. Any value can be overridden with an environment variable of the same name in uppercase (e.g. `TOP_K=10`).
 
-1. Drag and drop one or more PDF or DOCX files onto the upload area.
-2. Files are ingested automatically on drop, or click **Ingest Uploaded Files** .
-3. The document table shows each file with its page and chunk counts.
-4. To remove a document, enter its exact filename and click **Remove** .
-
-### Tab 2 — Chat
-
-- Select a document scope from the dropdown (`All Documents` or a specific file).
-- Type your question and press Enter or click **Send** .
-- Works for casual conversation too — no document required.
-- Click **New Session** to clear history and start a fresh session ID.
-
-### Tab 3 — Summary
-
-- Select a document from the dropdown.
-- Click **Generate Summary** for a structured overview including parties, obligations, dates, and risks.
-- Large documents are summarized in segments using map-reduce then merged.
+| Parameter                   | Default                     | Description                                    |
+| --------------------------- | --------------------------- | ---------------------------------------------- |
+| `groq_model_id`           | `llama-3.3-70b-versatile` | Groq model to use                              |
+| `llm_temperature`         | `0.0`                     | LLM temperature (0 = deterministic)            |
+| `chunk_size`              | `800`                     | Max characters per chunk                       |
+| `chunk_overlap`           | `150`                     | Overlap between adjacent chunks                |
+| `top_k`                   | `5`                       | Chunks retrieved per query                     |
+| `similarity_threshold`    | `0.30`                    | Min normalised score (0–1) to include a chunk |
+| `history_score_threshold` | `0.25`                    | Min score for semantic history retrieval       |
+| `history_ttl_days`        | `7`                       | Days before history turns are purged           |
+| `max_session_turns`       | `6`                       | Recent turns injected into the LLM prompt      |
+| `vector_store_backend`    | `chroma`                  | `chroma`or `faiss`                         |
+| `api_port`                | `8000`                    | FastAPI port                                   |
+| `gradio_port`             | `7860`                    | Gradio UI port                                 |
 
 ---
 
 ## API Reference
 
-| Method   | Endpoint            | Description                          |
-| -------- | ------------------- | ------------------------------------ |
-| `GET`    | `/health`           | System status and document count     |
-| `POST`   | `/ingest`           | Upload and ingest a single file      |
-| `POST`   | `/ingest/batch`     | Upload and ingest multiple files     |
-| `GET`    | `/documents`        | List all ingested documents          |
-| `DELETE` | `/documents/{name}` | Remove a document                    |
-| `POST`   | `/qa`               | Ask a question (single or cross-doc) |
-| `POST`   | `/summarize`        | Summarize a document                 |
+All endpoints accept and return JSON. Full interactive docs at `/docs`.
 
-**Example Q&A request:**
+| Method     | Endpoint              | Description                      |
+| ---------- | --------------------- | -------------------------------- |
+| `GET`    | `/health`           | System status and document count |
+| `POST`   | `/ingest`           | Upload and ingest a single file  |
+| `POST`   | `/ingest/batch`     | Upload and ingest multiple files |
+| `GET`    | `/documents`        | List all ingested documents      |
+| `DELETE` | `/documents/{name}` | Remove a document                |
+| `POST`   | `/qa`               | Ask a question                   |
+| `POST`   | `/summarize`        | Summarize a document             |
 
-```bash
-curl -X POST http://localhost:8000/qa \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What are the termination conditions?",
-    "doc_name": "contract.pdf",
-    "session_id": "user-123"
-  }'
+### POST /qa
+
+```json
+{
+  "question": "What are the termination conditions?",
+  "doc_name": "contract.pdf",
+  "user_id": "abc123",
+  "conversation_id": "uuid-here",
+  "history": [],
+  "session_id": "default"
+}
 ```
+
+`doc_name` is optional — omit to search across all documents. `user_id` and `conversation_id` are optional but enable persistent session memory.
 
 ---
 
 ## Evaluation
 
-The evaluation pipeline implements an **LLM-as-Judge** formulation across four steps:
-
-1. **Sample** — Two random chunks are drawn from the document's vector store.
-2. **Generate** — A generator LLM produces a synthetic `(question, ground_truth_answer)` pair grounded in those chunks.
-3. **Retrieve & Answer** — The live RAG agent answers the same question, returning a candidate answer and the chunks it retrieved.
-4. **Judge** — A judge LLM compares the candidate answer against the ground truth and scores it on three axes:
-   - **Faithfulness** (0–10): Is every claim grounded in the retrieved context?
-   - **Relevance** (0–10): Does the answer address the question directly?
-   - **Correctness** (0–10): How well does it align with the ground-truth answer?
-   - **Hallucination flag** : `true` if any claim is unsupported by the retrieved context.
-
-### Running the evaluation
-
-First, ingest the target document through the UI or API. Then:
+The evaluation pipeline measures RAG quality using an LLM-as-judge approach. It requires at least one ingested document.
 
 ```bash
-# Default: 5 samples from Fraud_Detection_System_Design.pdf
 python scripts/evaluate.py
+```
 
+```bash
 # Custom options
 python scripts/evaluate.py \
-  --doc_name Fraud_Detection_System_Design.pdf \
+  --doc_name contract.pdf \
   --num_samples 10 \
   --qa_per_sample 2 \
-  --output reports/eval_report.json
+  --output reports/eval.json
 ```
 
-### Sample output
+**Pipeline per sample:**
 
-```
-=======================================================
-  LLM-AS-JUDGE EVALUATION REPORT
-=======================================================
-  Num Samples Evaluated          10
-  Avg Faithfulness               8.4
-  Avg Relevance                  7.9
-  Avg Correctness                7.6
-  Hallucination Rate             0.1
-  Avg Composite Score            7.97
-=======================================================
-```
+1. Draw two random chunks from the vector store
+2. Feed both chunks to the LLM → generate synthetic (question, ground-truth answer) pairs
+3. Run the same question through the live RAG pipeline → candidate answer
+4. Feed (question, ground truth, retrieved context, candidate answer) to a judge LLM
+5. Judge scores on  **Faithfulness** ,  **Relevance** , and **Correctness** (0–10 each) and flags hallucinations
 
-The full per-question report is saved to the `--output` path as JSON.
+Results are printed to stdout and saved as a JSON report.
 
 ---
 
-## Project Structure Notes
+## Session Memory
 
-- **No external vector DB required** — Chroma runs locally and persists to `vector_store/`.
-- **No API key for embeddings** — `all-MiniLM-L6-v2` runs fully locally via SentenceTransformers.
-- **Only Groq API key needed** — Used for both the chat LLM and the evaluation judge.
-- **Stateless vector store access** — Each Chroma store is opened fresh per request (Windows-safe; avoids file lock conflicts).
-- **Modular design** — Each concern (parsing, chunking, embedding, retrieval, LLM, memory, UI) is a separate module with a clean interface.
+Each user receives a stable **User ID** (12-character UUID prefix) on first connect. This ID persists across browser sessions and is the key to long-term memory.
 
----
+* **Enter your User ID** when reconnecting to resume context from previous conversations
+* **Leave it blank** to receive a new ID (a fresh user with no history)
+* **New Conversation** starts a clean chat while preserving your ID — past sessions remain available as semantic context
 
-## Configuration Reference
-
-| Setting                      | Default                   | Description                   |
-| ---------------------------- | ------------------------- | ----------------------------- |
-| `LLM_KEY`                    | _(required)_              | Groq API key                  |
-| `GROQ_MODEL_ID`              | `llama-3.3-70b-versatile` | Groq model to use             |
-| `LLM_TEMPERATURE`            | `0.0`                     | LLM sampling temperature      |
-| `LLM_MAX_TOKENS`             | `1024`                    | Max tokens per response       |
-| `SENTENCE_TRANSFORMER_MODEL` | `all-MiniLM-L6-v2`        | Local embedding model         |
-| `CHUNK_SIZE`                 | `800`                     | Characters per chunk          |
-| `CHUNK_OVERLAP`              | `150`                     | Overlap between chunks        |
-| `TOP_K`                      | `5`                       | Chunks to retrieve per query  |
-| `SIMILARITY_THRESHOLD`       | `0.25`                    | Minimum relevance score (0–1) |
-| `GRADIO_PORT`                | `7860`                    | UI server port                |
-| `API_PORT`                   | `8000`                    | FastAPI server port           |
+History turns older than `history_ttl_days` (default: 7 days) are purged automatically at startup. Document chunks are never affected by this purge.
 
 ---
 
-## Tech Stack
+## Concurrency
 
-| Component     | Library                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------- |
-| LLM           | [Groq](https://groq.com/)via `langchain-groq`                                                     |
-| Embeddings    | [SentenceTransformers](https://www.sbert.net/)via `langchain-community`                           |
-| Vector store  | [Chroma](https://www.trychroma.com/)(default) / FAISS                                             |
-| RAG framework | [LangChain](https://www.langchain.com/)                                                           |
-| API server    | [FastAPI](https://fastapi.tiangolo.com/)+[LangServe](https://python.langchain.com/docs/langserve) |
-| Web UI        | [Gradio](https://www.gradio.app/)                                                                 |
-| PDF parsing   | [PyMuPDF](https://pymupdf.readthedocs.io/)/[pdfplumber](https://github.com/jsvine/pdfplumber)     |
-| DOCX parsing  | [python-docx](https://python-docx.readthedocs.io/)                                                |
+The FastAPI server and Gradio UI run as threads in the same OS process. All Chroma write operations are serialised by a `threading.RLock` defined in `src/storage/document_store.py`. This prevents SQLite `database is locked` errors under concurrent upload and query traffic.
+
+> **Note:** If you deploy with multiple OS processes (e.g. gunicorn workers), replace `PersistentClient` with `chromadb.HttpClient` pointing at a dedicated Chroma server process — a threading lock cannot protect across process boundaries.
+
+---
+
+## Supported File Types
+
+| Format | Parser                                   | Notes                                                       |
+| ------ | ---------------------------------------- | ----------------------------------------------------------- |
+| PDF    | PyMuPDF (primary), pdfplumber (fallback) | Falls back automatically if PyMuPDF returns empty text      |
+| DOCX   | python-docx                              | Extracts paragraphs and tables; groups into synthetic pages |
+
+Maximum file size: 50 MB per document.
