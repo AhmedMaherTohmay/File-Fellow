@@ -54,17 +54,21 @@ def answer_question(
     )
     semantic_history_str = history_mgr.format_for_prompt(relevant_history)
 
-    retrieved = retrieve_chunks(question, doc_name=doc_name)
+    retrieved = retrieve_chunks(
+        question,
+        user_id=effective_user_id,
+        doc_name=doc_name,
+    )
     context_str = _format_context(retrieved)
     history_str = _format_history(history)
 
     llm = get_llm()
     chain = QA_PROMPT | llm
     response = chain.invoke({
-        "context": context_str,
-        "history": history_str,
+        "context":          context_str,
+        "history":          history_str,
         "semantic_history": semantic_history_str,
-        "question": question,
+        "question":         question,
     })
     answer = response.content if hasattr(response, "content") else str(response)
 
@@ -72,15 +76,17 @@ def answer_question(
     for doc, score in retrieved:
         m = doc.metadata
         sources.append({
-            "source": m.get("source", "?"),
-            "page": m.get("page", "?"),
-            "score": round(score, 4),
+            "source":  m.get("source", "?"),
+            "page":    m.get("page", "?"),
+            "score":   round(score, 4),
             "snippet": doc.page_content[:250],
-            "doc_id": m.get("doc_id", "?"),
+            "doc_id":  m.get("doc_id", "?"),
         })
 
     history_mgr.add_turn(user=question, assistant=answer)
 
-    logger.debug("Q: '%s' | chunks=%d | user=%s | conv=%s",
-                 question[:60], len(retrieved), effective_user_id, conversation_id)
+    logger.debug(
+        "Q: '%.60s' | chunks=%d | user=%s | conv=%s",
+        question, len(retrieved), effective_user_id, conversation_id,
+    )
     return {"answer": answer, "sources": sources, "retrieved_chunks": retrieved}

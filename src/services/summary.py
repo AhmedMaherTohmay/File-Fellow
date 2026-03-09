@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import List, Optional
 
 from langchain_core.documents import Document
 
@@ -42,8 +42,8 @@ def _group_chunks_into_segments(chunks: List[Document]) -> List[str]:
     return segments[:MAX_SUMMARY_SEGMENTS]
 
 
-def summarize_document(filename: str) -> str:
-    chunks = get_chunks_for_doc(filename)
+def summarize_document(filename: str, user_id: Optional[str] = None) -> str:
+    chunks = get_chunks_for_doc(filename, user_id=user_id)
     if not chunks:
         raise ValueError(
             f"No chunks found for '{filename}'. "
@@ -56,16 +56,15 @@ def summarize_document(filename: str) -> str:
         logger.info("Summarizing '%s' in a single pass (%d chunks).", filename, len(chunks))
         return _summarize_text(segments[0])
 
-    logger.info("Summarizing '%s' in %d segments (%d chunks, map-reduce).",
-                filename, len(segments), len(chunks))
-    partial_summaries = [_summarize_text(seg) for seg in segments]
-
-    combined = "\n\n===\n\n".join(partial_summaries)
-    merge_prompt = (
-        "You have several partial summaries of the same document. "
-        "Merge them into one coherent, structured summary covering all key aspects:\n\n"
-        + combined
+    logger.info(
+        "Summarizing '%s' in %d segments (%d chunks, map-reduce).",
+        filename, len(segments), len(chunks),
     )
+    partial_summaries = [_summarize_text(seg) for seg in segments]
+    combined = "\n\n===\n\n".join(partial_summaries)
+
     llm = get_llm()
-    response = llm.invoke(merge_prompt)
+    response = llm.invoke(
+        "Merge these partial summaries into one coherent, structured summary:\n\n" + combined
+    )
     return response.content if hasattr(response, "content") else str(response)
