@@ -2,7 +2,7 @@
 llm_provider: groq
 groq_model_id: llama-3.3-70b-versatile
 llm_temperature: 0.0
-llm_max_tokens: 1024
+llm_max_tokens: 4096
 
 # Embedding settings
 embedding_provider: sentence_transformers

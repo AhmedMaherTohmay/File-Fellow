@@ -64,7 +64,7 @@ CHUNK_OVERLAP: int = int(_get("CHUNK_OVERLAP", "150"))
 
 # ── Retrieval ─────────────────────────────────────────────────────────────
 TOP_K: int = int(_get("TOP_K", "5"))
-SIMILARITY_THRESHOLD: float = float(_get("SIMILARITY_THRESHOLD", "0.000"))
+SIMILARITY_THRESHOLD: float = float(_get("SIMILARITY_THRESHOLD", "0.30"))
 
 # ── Vector Store ──────────────────────────────────────────────────────────
 VECTOR_STORE_BACKEND: str = _get("VECTOR_STORE_BACKEND", "chroma")
@@ -73,7 +73,6 @@ CHAT_HISTORY_COLLECTION: str = _get("CHAT_HISTORY_COLLECTION", "chat_history")
 
 # ── Multi-doc ─────────────────────────────────────────────────────────────
 MAX_DOCUMENTS: int = int(_get("MAX_DOCUMENTS", "20"))
-DEFAULT_QUERY_MODE: str = _get("DEFAULT_QUERY_MODE", "all")  # "all" | "<doc_name>"
 
 # ── Session / Memory ──────────────────────────────────────────────────────
 SESSION_HISTORY_TOP_K: int = int(_get("SESSION_HISTORY_TOP_K", "3"))

@@ -52,9 +52,32 @@ smart_contract_assistant/
 │   │   └── summary.py       # summarize_document(): chunk-aware map-reduce
 │   │
 │   ├── api/
-│   │   ├── server.py        # FastAPI routes
-│   │   └── schema.py        # Pydantic request/response models
-│   │
+│   │   ├── __init__.py            ← re-exports `app` for convenience
+│   │   │
+│   │	│	├── app.py                 ← NEW: app factory — creates FastAPI instance,
+│   │	│	│                              adds middleware, registers all routers,
+│   │	│	│                              registers LangServe. Nothing else.
+│   │	│	│
+│   │	│	├── deps.py                ← NEW: FastAPI Depends functions and shared
+│   │	│	│                              constants (ALLOWED_EXTENSIONS, require_store)
+│   │	│	│
+│   │	│	├── routers/               ← NEW: one file per domain
+│   │	│	│   ├── __init__.py
+│   │	│	│   ├── health.py          ← GET /health
+│   │	│	│   ├── documents.py       ← POST /ingest
+│   │	│	│   │                         POST /ingest/batch
+│   │	│	│   │                         GET  /documents
+│   │	│	│   │                         DELETE /documents/{doc_name}
+│   │	│	│   ├── qa.py              ← POST /qa
+│   │	│	│   └── summary.py         ← POST /summarize
+│   │	│	│
+│   │	│	└── schemas/               ← NEW: one file per domain
+│   │	│	│	├── __init__.py        ← re-exports everything (old schema.py callers keep working)
+│   │	│	│	├── documents.py       ← IngestResponse, BatchIngestResponse
+│   │	│	│	├── qa.py              ← QARequest, QAResponse
+│   │	│	│	└── summary.py         ← SummarizeRequest
+│   │	│	│       └── schema.py        # Pydantic request/response models
+│   │   │
 │   └── ui/
 │       ├── app.py           # gr.Blocks layout — mounts tabs, owns shared state
 │       ├── styles.py        # CSS design system + header HTML
