@@ -2,126 +2,140 @@
 Document ingestion pipeline.
 
 Orchestrates the full ingest flow:
-  sanitize → content-hash check → copy to UPLOAD_DIR → parse → chunk → store
+
+    validate → parse → chunk → embed → store
+
+Key design changes from the original implementation:
+  - Upload validation, deduplication, and file copying are handled by
+    ``prepare_upload()`` from the validators module.
+  - Embeddings are computed inside this pipeline rather than inside
+    the vector store layer.
+  - Documents are now scoped by ``user_id`` to support multi-user
+    environments.
 """
+
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from config.settings import UPLOAD_DIR
-from src.core.utils import sanitize_filename, file_content_hash
 from src.core.exceptions import ExtractionError
 from src.ingestion.chunker import chunk_pages
+from src.ingestion.embedder import get_embeddings
 from src.ingestion.parser import parse_document
+from src.ingestion.validators import prepare_upload
 from src.storage.document_store import add_document, get_document_registry
 
 logger = logging.getLogger(__name__)
 
 
-def ingest_document(file_path: "str | Path") -> Dict[str, Any]:
+def ingest_document(file_path: "str | Path", user_id: str = "default") -> Dict[str, Any]:
     """
-    Full ingestion pipeline: sanitize → dedup check → copy → parse → chunk → store.
+    Full ingestion pipeline.
+
+    Steps:
+        validate → parse → chunk → embed → store
 
     Args:
-        file_path: Path to the file to ingest.  May be anywhere on disk;
-                   the pipeline copies it into UPLOAD_DIR under its
-                   sanitised name before processing.
+        file_path:
+            Path to the file to ingest.
+
+        user_id:
+            Identifier for the user uploading the document. This value is
+            injected into chunk metadata and used for registry isolation.
 
     Returns:
-        Dict with keys: ``filename``, ``num_pages``, ``num_chunks``,
-        ``duplicate`` (bool), ``duplicate_of`` (str or None).
+        Dict with keys:
+            filename
+            num_pages
+            num_chunks
+            duplicate (bool)
+            duplicate_of (str or None)
 
     Raises:
-        FileNotFoundError: If *file_path* does not exist.
-        ExtractionError:   If the parser returns no usable text.
-        ValueError:        If the file extension is not supported.
+        FileNotFoundError:
+            If *file_path* does not exist.
+
+        ValueError:
+            If the file extension is unsupported or validation fails.
+
+        ExtractionError:
+            If the parser returns no usable text.
     """
+
     file_path = Path(file_path).resolve()
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: '{file_path}'")
 
-    # ── 1. Sanitize filename ──────────────────────────────────────────────
-    safe_name = sanitize_filename(file_path.name)
+    # ── 1. Validate upload, sanitize name, detect duplicates, copy to UPLOAD_DIR ──
+    prepared = prepare_upload(
+        file_path,
+        get_document_registry(),
+        user_id=user_id,
+    )
 
-    if safe_name != file_path.name:
-        logger.info("Filename sanitized: '%s' → '%s'", file_path.name, safe_name)
-
-    # ── 2. Content-hash deduplication ────────────────────────────────────
-    content_hash = file_content_hash(file_path)
-    registry = get_document_registry()
-
-    for existing_name, existing_meta in registry.items():
-        if existing_meta.get("content_hash") == content_hash:
-            # Exact same bytes already in the store — skip re-ingestion.
-            logger.info(
-                "Duplicate detected: '%s' has the same content as '%s'; skipping.",
-                file_path.name, existing_name,
-            )
-            return {
-                "filename": existing_name,
-                "num_pages": existing_meta.get("num_pages", 0),
-                "num_chunks": existing_meta.get("num_chunks", 0),
-                "duplicate": True,
-                "duplicate_of": existing_name,
-            }
-
-    # ── 3. Resolve name collision (different content, same sanitised name) ─
-    if safe_name in registry and registry[safe_name].get("content_hash") != content_hash:
-        # A different document already occupies this sanitised name.
-        # Append the first 8 chars of the content hash to make it unique.
-        stem = Path(safe_name).stem
-        ext = Path(safe_name).suffix
-        safe_name = f"{stem}_{content_hash[:8]}{ext}"
+    # If this file's content already exists in the store we skip ingestion
+    if prepared.is_duplicate:
         logger.info(
-            "Name collision resolved: '%s' already exists with different content; "
-            "using '%s' for the new file.",
-            Path(safe_name).stem.rsplit("_", 1)[0] + ext, safe_name,
+            "Duplicate upload detected for user '%s': '%s' → '%s'.",
+            user_id,
+            file_path.name,
+            prepared.duplicate_of,
         )
 
-    # ── 4. Ensure file lives in UPLOAD_DIR under its safe name ───────────
-    dest = UPLOAD_DIR / safe_name
+        return {
+            "filename": prepared.safe_name,
+            "num_pages": 0,
+            "num_chunks": 0,
+            "duplicate": True,
+            "duplicate_of": prepared.duplicate_of,
+        }
 
-    if file_path != dest:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(file_path, dest)
-        logger.debug("Copied '%s' → '%s'.", file_path, dest)
+    # ── 2. Parse document ──────────────────────────────────────────────────
+    pages = parse_document(prepared.dest)
 
-        # Remove the unsafe-named original only if it was already inside
-        # UPLOAD_DIR (avoids deleting files the caller still owns).
-        if file_path.parent.resolve() == UPLOAD_DIR.resolve():
-            try:
-                file_path.unlink()
-                logger.debug("Removed unsafe-named original '%s'.", file_path)
-            except OSError as exc:
-                logger.warning("Could not remove unsafe-named original '%s': %s",
-                               file_path, exc)
-
-    # ── 5. Parse ─────────────────────────────────────────────────────────
-    pages = parse_document(dest)
     if not pages:
-        raise ExtractionError(safe_name)
+        raise ExtractionError(prepared.safe_name)
 
-    # ── 6. Chunk ─────────────────────────────────────────────────────────
-    chunks = chunk_pages(pages, doc_id=safe_name)
+    # ── 3. Chunk document (user_id injected into chunk metadata) ───────────
+    chunks = chunk_pages(
+        pages,
+        doc_id=prepared.safe_name,
+        user_id=user_id,
+    )
 
-    # ── 7. Store ─────────────────────────────────────────────────────────
+    # ── 4. Generate embeddings for each chunk ─────────────────────────────
+    embeddings_model = get_embeddings()
+
+    vectors = embeddings_model.embed_documents(
+        [chunk.page_content for chunk in chunks]
+    )
+
+    # ── 5. Store chunks and embeddings ────────────────────────────────────
     add_document(
-        doc_name=safe_name,
+        doc_name=prepared.safe_name,
         chunks=chunks,
-        metadata={
+        embeddings=vectors,
+        user_id=user_id,
+        doc_metadata={
             "num_pages": len(pages),
             "num_chunks": len(chunks),
-            "content_hash": content_hash,   # Stored for future dedup checks
+            "content_hash": prepared.content_hash,
         },
     )
 
-    logger.info("Ingested '%s': %d page(s), %d chunk(s).", safe_name, len(pages), len(chunks))
+    logger.info(
+        "Ingested '%s' for user '%s': %d page(s), %d chunk(s).",
+        prepared.safe_name,
+        user_id,
+        len(pages),
+        len(chunks),
+    )
+
     return {
-        "filename": safe_name,
+        "filename": prepared.safe_name,
         "num_pages": len(pages),
         "num_chunks": len(chunks),
         "duplicate": False,
