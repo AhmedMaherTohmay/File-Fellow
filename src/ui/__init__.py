@@ -1,3 +1,2 @@
-from src.ui.app import launch, demo
-
-__all__ = ["launch", "demo"]
+# Import directly from submodules, e.g.:
+# from src.ui.app import launch

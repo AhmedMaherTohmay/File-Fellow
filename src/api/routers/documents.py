@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 
-from src.api.deps import save_upload, ALLOWED_EXTENSIONS
+from src.api.deps import save_upload
 from src.api.schemas.documents import IngestResponse, BatchIngestResponse
 from src.core.exceptions import ExtractionError
 from src.ingestion.pipeline import ingest_document
@@ -21,16 +22,24 @@ def _ingest_response(result: dict) -> IngestResponse:
     msg = (
         f"Duplicate of '{result['duplicate_of']}' — skipped."
         if result.get("duplicate")
-        else f"Ingested '{result['filename']}' ({result['num_pages']} pages, {result['num_chunks']} chunks)."
+        else f"Ingested '{result['filename']}' "
+             f"({result['num_pages']} pages, {result['num_chunks']} chunks)."
     )
     return IngestResponse(**result, message=msg)
 
 
 @router.post("/ingest", response_model=IngestResponse)
-async def ingest(dest: Path = Depends(save_upload)):
+async def ingest(
+    dest: Path = Depends(save_upload),
+    user_id: str = Query("default"),
+):
     try:
-        result = ingest_document(dest)
-    except ExtractionError as exc:
+        result = await asyncio.to_thread(
+            ingest_document,
+            file_path=dest,
+            user_id=user_id,
+        )
+    except (ValueError, ExtractionError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Ingestion failed for '%s': %s", dest.name, exc)
@@ -40,7 +49,10 @@ async def ingest(dest: Path = Depends(save_upload)):
 
 
 @router.post("/ingest/batch", response_model=BatchIngestResponse)
-async def ingest_batch(files: List[UploadFile] = File(...)):
+async def ingest_batch(
+    files: List[UploadFile] = File(...),
+    user_id: str = Query("default"),
+):
     results: List[IngestResponse] = []
     errors: List[dict] = []
 
@@ -52,9 +64,13 @@ async def ingest_batch(files: List[UploadFile] = File(...)):
             continue
 
         try:
-            result = ingest_document(dest)
+            result = await asyncio.to_thread(
+                ingest_document,
+                file_path=dest,
+                user_id=user_id,
+            )
             results.append(_ingest_response(result))
-        except ExtractionError as exc:
+        except (ValueError, ExtractionError) as exc:
             errors.append({"filename": file.filename, "error": str(exc)})
         except Exception as exc:
             logger.error("Ingestion error for '%s': %s", file.filename, exc)
@@ -64,13 +80,24 @@ async def ingest_batch(files: List[UploadFile] = File(...)):
 
 
 @router.get("")
-async def list_documents():
-    registry = get_document_registry()
+async def list_documents(user_id: str = Query("default")):
+    logger.debug("Listing documents for user '%s'", user_id)
+    registry = get_document_registry(user_id=user_id)
     return {"documents": registry, "count": len(registry)}
 
 
 @router.delete("/{doc_name}")
-async def delete_document(doc_name: str):
-    if not remove_document(doc_name):
+async def delete_document(
+    doc_name: str,
+    user_id: str = Query("default"),
+):
+    removed = await asyncio.to_thread(
+        remove_document,
+        doc_name=doc_name,
+        user_id=user_id,
+    )
+
+    if not removed:
         raise HTTPException(status_code=404, detail=f"Document '{doc_name}' not found.")
+
     return {"message": f"Document '{doc_name}' removed successfully."}

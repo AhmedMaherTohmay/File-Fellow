@@ -28,9 +28,9 @@ with gr.Blocks(
     gr.HTML(HEADER_HTML)
 
     with gr.Tabs():
-        build_upload_tab()
+        build_upload_tab(user_id_state)
         build_chat_tab(user_id_state, conversation_state)
-        build_summary_tab()
+        build_summary_tab(user_id_state)
 
 
 def launch():

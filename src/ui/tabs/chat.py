@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 import gradio as gr
 
@@ -38,10 +39,23 @@ def chat(user_message, chat_history, doc_selector, user_id, conversation_id):
 
 
 def _auto_connect_and_chat(msg, history, doc_sel, uid, conv_id):
+    """Auto-create a session on first message if the user never clicked Connect."""
     if not uid:
-        uid, conv_id, _, _ = connect_user("")
-    return chat(msg, history, doc_sel, uid, conv_id)
+        # Use "default" to match the user_id that upload.py assigns when
+        uid = "default"
+        conv_id = new_conversation()
+        session_html = (
+            '<div class="session-pill pill-new">'
+            '<span class="pill-dot"></span>'
+            'Auto-session · <code>default</code>'
+            '<span class="pill-hint"> — click Connect to get a personal ID</span>'
+            '</div>'
+        )
+    else:
+        session_html = gr.update()  # session already established — leave pill as-is
 
+    msg_out, history_out, sources_out = chat(msg, history, doc_sel, uid, conv_id)
+    return msg_out, history_out, sources_out, uid, conv_id, session_html
 
 def build_chat_tab(user_id_state, conversation_state):
     with gr.Tab("Chat"):
@@ -81,25 +95,29 @@ def build_chat_tab(user_id_state, conversation_state):
         new_conv_btn = gr.Button("New Conversation", variant="secondary")
 
         connect_btn.click(
-            fn=connect_user, inputs=[user_id_input],
+            fn=connect_user,
+            inputs=[user_id_input],
             outputs=[user_id_state, conversation_state, session_info, user_id_input],
         )
-        send_btn.click(
-            fn=_auto_connect_and_chat,
-            inputs=[msg_input, chatbot, doc_selector, user_id_state, conversation_state],
-            outputs=[msg_input, chatbot, sources_display],
-        )
-        msg_input.submit(
-            fn=_auto_connect_and_chat,
-            inputs=[msg_input, chatbot, doc_selector, user_id_state, conversation_state],
-            outputs=[msg_input, chatbot, sources_display],
-        )
+
+        # Send and Enter both go through _auto_connect_and_chat so the session
+        # panel is updated even when the user never clicked Connect.
+        for trigger in (send_btn.click, msg_input.submit):
+            trigger(
+                fn=_auto_connect_and_chat,
+                inputs=[msg_input, chatbot, doc_selector, user_id_state, conversation_state],
+                outputs=[msg_input, chatbot, sources_display,
+                         user_id_state, conversation_state, session_info],
+            )
+
         new_conv_btn.click(
             fn=new_conversation, inputs=[user_id_state],
             outputs=[msg_input, chatbot, session_info, conversation_state],
         )
         new_conv_btn.click(fn=lambda: "", outputs=[sources_display])
+
         refresh_docs_btn.click(
-            fn=lambda: gr.Dropdown(choices=get_doc_choices()),
+            fn=lambda uid: gr.Dropdown(choices=get_doc_choices(user_id=uid or None)),
+            inputs=[user_id_state],
             outputs=[doc_selector],
         )

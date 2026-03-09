@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +17,8 @@ router = APIRouter(tags=["qa"])
 @router.post("/qa", response_model=QAResponse, dependencies=[Depends(require_store)])
 async def qa(req: QARequest):
     try:
-        result = answer_question(
+        result = await asyncio.to_thread(
+            answer_question,
             question=req.question,
             history=req.history,
             doc_name=req.doc_name,
@@ -24,6 +26,7 @@ async def qa(req: QARequest):
             user_id=req.user_id,
             conversation_id=req.conversation_id,
         )
+
         return QAResponse(
             answer=result["answer"],
             sources=result["sources"],
@@ -31,6 +34,7 @@ async def qa(req: QARequest):
             user_id=req.user_id,
             conversation_id=req.conversation_id,
         )
+
     except Exception as exc:
         logger.error("Q&A error: %s", exc)
         raise HTTPException(status_code=500, detail=f"Q&A error: {exc}") from exc
