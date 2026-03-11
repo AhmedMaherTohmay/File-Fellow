@@ -30,11 +30,7 @@ from typing import Dict, List, Optional
 
 from langchain_core.documents import Document
 
-from config.settings import (
-    CHROMA_COLLECTION_PREFIX,
-    VECTOR_STORE_DIR,
-    CHAT_HISTORY_COLLECTION,
-)
+from config.settings import settings
 
 from src.ingestion.embedder import get_embeddings
 
@@ -50,8 +46,8 @@ _WRITE_LOCK = threading.RLock()
 # Constants
 # ──────────────────────────────────────────────────────────────
 
-_GLOBAL_COLLECTION: str = f"all_{CHROMA_COLLECTION_PREFIX}s"
-_registry_path: Path = VECTOR_STORE_DIR / "doc_registry.json"
+_GLOBAL_COLLECTION: str = f"all_{settings.CHROMA_COLLECTION_PREFIX}s"
+_registry_path: Path = settings.VECTOR_STORE_DIR / "doc_registry.json"
 
 # ──────────────────────────────────────────────────────────────
 # Registry helpers
@@ -153,7 +149,7 @@ def _get_chroma(collection_name: str):
     """
     from langchain_community.vectorstores import Chroma
 
-    persist_path = VECTOR_STORE_DIR / "chroma" / collection_name
+    persist_path = settings.VECTOR_STORE_DIR / "chroma" / collection_name
     persist_path.mkdir(parents=True, exist_ok=True)
 
     return Chroma(
@@ -172,7 +168,7 @@ def _delete_doc_chunks(doc_name: str, user_id: str) -> None:
     """
     Remove all chunks belonging to a specific document/user pair.
     """
-    coll_path = VECTOR_STORE_DIR / "chroma" / _GLOBAL_COLLECTION
+    coll_path = settings.VECTOR_STORE_DIR / "chroma" / _GLOBAL_COLLECTION
 
     if not coll_path.exists():
         return
@@ -361,7 +357,7 @@ def get_chunks_for_doc(
 
 def get_history_store():
     """Return the vector store used for semantic chat history."""
-    return _get_chroma(CHAT_HISTORY_COLLECTION)
+    return _get_chroma(settings.CHAT_HISTORY_COLLECTION)
 
 
 def store_is_ready(user_id: Optional[str] = None) -> bool:
@@ -390,12 +386,12 @@ def migrate_per_doc_collections() -> int:
 
     Older versions created one Chroma collection per document.
     """
-    chroma_root = VECTOR_STORE_DIR / "chroma"
+    chroma_root = settings.VECTOR_STORE_DIR / "chroma"
 
     if not chroma_root.exists():
         return 0
 
-    protected = {_GLOBAL_COLLECTION, CHAT_HISTORY_COLLECTION}
+    protected = {_GLOBAL_COLLECTION, settings.CHAT_HISTORY_COLLECTION}
 
     removed = 0
 

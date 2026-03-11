@@ -14,12 +14,17 @@ import sys
 import threading
 from pathlib import Path
 from src.core.logger import setup_logging
+from config.settings import settings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# setup_logging() returns None, so we need to get the logger separately
-setup_logging(level="INFO", log_dir="logs", log_filename="app.log")
-logger = logging.getLogger(__name__)  # Get the logger properly
+# Use LOG_LEVEL and LOG_DIR from settings so they can be overridden via .env
+setup_logging(
+    level=settings.LOG_LEVEL,
+    log_dir=settings.LOG_DIR,
+    log_filename="app.log",
+)
+logger = logging.getLogger(__name__)
 
 
 def run_migrations() -> None:
@@ -47,9 +52,8 @@ def run_history_purge() -> None:
 
 def run_api() -> None:
     import uvicorn
-    from config.settings import API_HOST, API_PORT
-    logger.info("Starting FastAPI on http://%s:%d", API_HOST, API_PORT)
-    uvicorn.run("src.api.app:app", host=API_HOST, port=API_PORT, reload=False, log_level="warning")
+    logger.info("Starting FastAPI on http://%s:%d", settings.API_HOST, settings.API_PORT)
+    uvicorn.run("src.api.app:app", host=settings.API_HOST, port=settings.API_PORT, reload=False, log_level="warning")
 
 
 def run_ui() -> None:

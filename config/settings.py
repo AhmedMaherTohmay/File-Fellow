@@ -1,101 +1,95 @@
 """
-Loads from config.yaml first, then .env overrides, then environment variables.
-Uses pathlib.Path for cross-platform compatibility.
+Application configuration — single source of truth.
 """
 from __future__ import annotations
 
-import logging
-import os
 from pathlib import Path
+from typing import Literal, Optional
 
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# ── Bootstrap ──────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
-
-logger = logging.getLogger(__name__)
+# Resolved once at import time so computed paths are consistent
+_BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
 
-def _load_yaml_defaults() -> dict:
-    """Load defaults from config/config.yaml if it exists."""
-    yaml_path = BASE_DIR / "config" / "config.yaml"
-    if yaml_path.exists():
-        try:
-            import yaml  # type: ignore
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",          # silently ignore unknown env vars
+    )
 
-            with open(yaml_path, encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-        except ImportError:
-            logger.debug("PyYAML not installed; skipping config.yaml.")
-    return {}
+    # ── Application ────────────────────────────────────────────────────────
+    APP_NAME: str = "Smart Contract Assistant"
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
+
+    # ── Vector Store Backend ───────────────────────────────────────────────
+    VECTOR_STORE_BACKEND: Literal["chroma", "pgvector", "qdrant"] = "chroma"
+    CHROMA_COLLECTION_PREFIX: str = "file"
+    CHAT_HISTORY_COLLECTION: str = "chat_history"
+    EMBEDDING_DIMENSION: int = 384          # matches all-MiniLM-L6-v2
+
+    # ── pgvector (future) ──────────────────────────────────────────────────
+    PGVECTOR_HNSW_M: int = 16
+    PGVECTOR_HNSW_EF_CONSTRUCTION: int = 64
+    PGVECTOR_HNSW_EF_SEARCH: int = 40
+
+    # ── Qdrant (future) ────────────────────────────────────────────────────
+    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_API_KEY: Optional[str] = None    # secret — set in .env if needed
+
+    # ── LLM ───────────────────────────────────────────────────────────────
+    LLM_PROVIDER: str = "groq"
+    LLM_KEY: str = ""                       # SECRET — must be set in .env
+    GROQ_MODEL_ID: str = "llama-3.3-70b-versatile"
+    LLM_TEMPERATURE: float = 0.0
+    LLM_MAX_TOKENS: int = 4096              # authoritative default (was split between yaml/env)
+
+    # ── Embeddings ─────────────────────────────────────────────────────────
+    EMBEDDING_PROVIDER: str = "sentence_transformers"
+    SENTENCE_TRANSFORMER_MODEL: str = "all-MiniLM-L6-v2"
+
+    # ── Chunking ───────────────────────────────────────────────────────────
+    CHUNK_SIZE: int = 800
+    CHUNK_OVERLAP: int = 150
+    MIN_CHUNK_LENGTH: int = 50
+
+    # ── Retrieval ─────────────────────────────────────────────────────────
+    TOP_K: int = 5
+    SIMILARITY_THRESHOLD: float = 0.30
+
+    # ── Multi-doc ─────────────────────────────────────────────────────────
+    MAX_DOCUMENTS: int = 20
+
+    # ── Session / Memory ──────────────────────────────────────────────────
+    SESSION_HISTORY_TOP_K: int = 3
+    MAX_SESSION_TURNS: int = 6
+    HISTORY_SCORE_THRESHOLD: float = 0.25
+    HISTORY_TTL_DAYS: int = 7
+
+    # ── Server ────────────────────────────────────────────────────────────
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8000
+    GRADIO_HOST: str = "0.0.0.0"
+    GRADIO_PORT: int = 7860
+    GRADIO_SHARE: bool = False
+
+    # ── Evaluation ────────────────────────────────────────────────────────
+    EVAL_NUM_QUESTIONS: int = 10
+    EVAL_BASELINE_DOC_FRACTION: float = 0.1
+
+    # ── Paths (derived from project root; override via env vars if needed) ─
+    UPLOAD_DIR: Path = _BASE_DIR / "data" / "uploads"
+    VECTOR_STORE_DIR: Path = _BASE_DIR / "data" / "vector_store"
+    LOG_DIR: Path = _BASE_DIR / "data" / "logs"
 
 
-_yaml = _load_yaml_defaults()
+# ── Singleton instance ─────────────────────────────────────────────────────
+settings = Settings()
 
-
-def _get(key: str, default):
-    """Read: env var > yaml > default."""
-    return os.getenv(key) or _yaml.get(key.lower()) or default
-
-
-# ── Paths ──────────────────────────────────────────────────────────────────
-VECTOR_STORE_DIR: Path = BASE_DIR / "data" / "vector_store"
-UPLOAD_DIR: Path = BASE_DIR / "data" / "uploads"
-LOG_DIR: Path = BASE_DIR / "data" / "logs"
-
-for _d in (VECTOR_STORE_DIR, UPLOAD_DIR, LOG_DIR):
-    _d.mkdir(parents=True, exist_ok=True)
-
-# ── LLM ───────────────────────────────────────────────────────────────────
-LLM_PROVIDER: str = _get("LLM_PROVIDER", "groq")
-LLM_KEY: str = _get("LLM_KEY", "")
-GROQ_MODEL_ID: str = _get("GROQ_MODEL_ID", "llama-3.3-70b-versatile")
-LLM_TEMPERATURE: float = float(_get("LLM_TEMPERATURE", "0.0"))
-LLM_MAX_TOKENS: int = int(_get("LLM_MAX_TOKENS", "1024"))
-
-# ── Embeddings ─────────────────────────────────────────────────────────────
-EMBEDDING_PROVIDER: str = _get("EMBEDDING_PROVIDER", "sentence_transformers")
-SENTENCE_TRANSFORMER_MODEL: str = _get("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
-
-# ── Chunking ───────────────────────────────────────────────────────────────
-CHUNK_SIZE: int = int(_get("CHUNK_SIZE", "800"))
-CHUNK_OVERLAP: int = int(_get("CHUNK_OVERLAP", "150"))
-
-# ── Retrieval ─────────────────────────────────────────────────────────────
-TOP_K: int = int(_get("TOP_K", "5"))
-SIMILARITY_THRESHOLD: float = float(_get("SIMILARITY_THRESHOLD", "0.30"))
-
-# ── Vector Store ──────────────────────────────────────────────────────────
-VECTOR_STORE_BACKEND: str = _get("VECTOR_STORE_BACKEND", "chroma")
-CHROMA_COLLECTION_PREFIX: str = _get("CHROMA_COLLECTION_PREFIX", "file")
-CHAT_HISTORY_COLLECTION: str = _get("CHAT_HISTORY_COLLECTION", "chat_history")
-
-# ── Multi-doc ─────────────────────────────────────────────────────────────
-MAX_DOCUMENTS: int = int(_get("MAX_DOCUMENTS", "20"))
-
-# ── Session / Memory ──────────────────────────────────────────────────────
-SESSION_HISTORY_TOP_K: int = int(_get("SESSION_HISTORY_TOP_K", "3"))
-MAX_SESSION_TURNS: int = int(_get("MAX_SESSION_TURNS", "6"))
-
-# Separate threshold for semantic history retrieval.
-HISTORY_SCORE_THRESHOLD: float = float(_get("HISTORY_SCORE_THRESHOLD", "0.25"))
-
-# History turns older than this many days are purged at startup.
-HISTORY_TTL_DAYS: int = int(_get("HISTORY_TTL_DAYS", "7"))
-
-# ── FastAPI / LangServe ───────────────────────────────────────────────────
-API_HOST: str = _get("API_HOST", "0.0.0.0")
-API_PORT: int = int(_get("API_PORT", "8000"))
-
-# ── Gradio ────────────────────────────────────────────────────────────────
-GRADIO_HOST: str = _get("GRADIO_HOST", "0.0.0.0")
-GRADIO_PORT: int = int(_get("GRADIO_PORT", "7860"))
-GRADIO_SHARE: bool = _get("GRADIO_SHARE", "false").lower() == "true"
-
-# ── Logging ────────────────────────────────────────────────────────────────
-LOG_LEVEL: str = _get("LOG_LEVEL", "INFO")
-
-# ── Evaluation ────────────────────────────────────────────────────────────
-EVAL_NUM_QUESTIONS: int = int(_get("EVAL_NUM_QUESTIONS", "10"))
-EVAL_BASELINE_DOC_FRACTION: float = float(_get("EVAL_BASELINE_DOC_FRACTION", "0.1"))
+# Ensure required directories exist at import time
+settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+settings.VECTOR_STORE_DIR.mkdir(parents=True, exist_ok=True)
+settings.LOG_DIR.mkdir(parents=True, exist_ok=True)

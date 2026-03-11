@@ -7,13 +7,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from config.settings import (
-    LLM_PROVIDER,
-    LLM_KEY,
-    GROQ_MODEL_ID,
-    LLM_TEMPERATURE,
-    LLM_MAX_TOKENS,
-)
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +20,14 @@ def get_llm():
         ValueError: If the provider is not supported.
         RuntimeError: If the API key is missing or initialization fails.
     """
-    if LLM_PROVIDER.lower() != "groq":
+    if settings.LLM_PROVIDER.lower() != "groq":
         raise ValueError(
-            f"Unsupported LLM_PROVIDER='{LLM_PROVIDER}'. "
+            f"Unsupported LLM_PROVIDER='{settings.LLM_PROVIDER}'. "
             "Only 'groq' is currently supported. "
             "Set LLM_PROVIDER=groq in your .env file."
         )
 
-    if not LLM_KEY:
+    if not settings.LLM_KEY:
         raise RuntimeError(
             "LLM_KEY is not set. Please add LLM_KEY=<your-groq-api-key> to your .env file."
         )
@@ -42,17 +36,17 @@ def get_llm():
         from langchain_groq import ChatGroq
 
         llm = ChatGroq(
-            model=GROQ_MODEL_ID,
-            api_key=LLM_KEY,
-            temperature=LLM_TEMPERATURE,
-            max_tokens=LLM_MAX_TOKENS,
+            model=settings.GROQ_MODEL_ID,
+            api_key=settings.LLM_KEY,
+            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=settings.LLM_MAX_TOKENS,
         )
 
         logger.info(
             "Initialized Groq LLM | model=%s | temperature=%.1f | max_tokens=%d",
-            GROQ_MODEL_ID,
-            LLM_TEMPERATURE,
-            LLM_MAX_TOKENS,
+            settings.GROQ_MODEL_ID,
+            settings.LLM_TEMPERATURE,
+            settings.LLM_MAX_TOKENS,
         )
         return llm
 
@@ -69,8 +63,8 @@ def get_llm_for_eval():
         from langchain_groq import ChatGroq
 
         return ChatGroq(
-            model=GROQ_MODEL_ID,
-            api_key=LLM_KEY,
+            model=settings.GROQ_MODEL_ID,
+            api_key=settings.LLM_KEY,
             temperature=0.1,
             max_tokens=512,
         )

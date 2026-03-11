@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 
 from langchain_core.documents import Document
 
-from config.settings import MAX_SESSION_TURNS
+from config.settings import settings
 from src.retrieval.retriever import retrieve_chunks
 from src.llm.llm_factory import get_llm
 from src.llm.prompts import QA_PROMPT
@@ -28,7 +28,7 @@ def _format_context(chunks: List[Tuple[Document, float]]) -> str:
 def _format_history(history: List[dict]) -> str:
     if not history:
         return "No recent conversation."
-    recent = history[-(MAX_SESSION_TURNS * 2):]
+    recent = history[-(settings.MAX_SESSION_TURNS * 2):]
     lines = []
     for msg in recent:
         role = "User" if msg.get("role") == "user" else "Assistant"

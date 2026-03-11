@@ -15,7 +15,10 @@ from typing import Any, Dict, List, Optional
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from config.settings import CHUNK_SIZE, CHUNK_OVERLAP
+from config.settings import settings
+
+CHUNK_SIZE = settings.CHUNK_SIZE
+CHUNK_OVERLAP = settings.CHUNK_OVERLAP
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +53,8 @@ def _stable_chunk_id(
 def chunk_pages(
     pages: List[Dict[str, Any]],
     *,
-    chunk_size: int = CHUNK_SIZE,
-    chunk_overlap: int = CHUNK_OVERLAP,
+    chunk_size: int = settings.CHUNK_SIZE,
+    chunk_overlap: int = settings.CHUNK_OVERLAP,
     doc_id: Optional[str] = None,
     user_id: str = "default",
     uploaded_at: Optional[str] = None,

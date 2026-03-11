@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from config.settings import UPLOAD_DIR
+from config.settings import settings
 from src.core.utils import sanitize_filename, file_content_hash
 
 logger = logging.getLogger(__name__)
@@ -102,13 +102,13 @@ def prepare_upload(file_path: Path, registry: dict, user_id: str = "default") ->
 
     safe_name = _resolve_name(safe_name, content_hash, registry, user_id)
 
-    dest = UPLOAD_DIR / safe_name
+    dest = settings.UPLOAD_DIR / safe_name
     if file_path.resolve() != dest.resolve():
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(file_path, dest)
         logger.debug("Copied '%s' → '%s'.", file_path, dest)
 
-        if file_path.parent.resolve() == UPLOAD_DIR.resolve():
+        if file_path.parent.resolve() == settings.UPLOAD_DIR.resolve():
             try:
                 file_path.unlink()
             except OSError as exc:

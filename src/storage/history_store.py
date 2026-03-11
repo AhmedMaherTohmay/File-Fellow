@@ -8,11 +8,7 @@ from typing import List, Optional
 
 from langchain_core.documents import Document
 
-from config.settings import (
-    SESSION_HISTORY_TOP_K,
-    HISTORY_SCORE_THRESHOLD,
-    HISTORY_TTL_DAYS,
-)
+from config.settings import settings
 from src.core.utils import normalise_score
 from src.storage.document_store import get_history_store, _WRITE_LOCK
 
@@ -27,8 +23,8 @@ class HistoryStore:
     def retrieve_relevant(
         self,
         query: str,
-        k: int = SESSION_HISTORY_TOP_K,
-        score_threshold: float = HISTORY_SCORE_THRESHOLD,
+        k: int = settings.SESSION_HISTORY_TOP_K,
+        score_threshold: float = settings.HISTORY_SCORE_THRESHOLD,
         exclude_conversation_id: Optional[str] = None,
     ) -> List[dict]:
 
@@ -164,9 +160,10 @@ class HistoryStore:
         return "\n".join(lines)
 
 
-def purge_old_turns(days: int = HISTORY_TTL_DAYS) -> int:
+def purge_old_turns(days: int = settings.HISTORY_TTL_DAYS) -> int:
 
-    from config.settings import VECTOR_STORE_BACKEND
+    if settings.VECTOR_STORE_BACKEND != "chroma":
+        return 0
 
     cutoff_iso = (
         datetime.now(timezone.utc) - timedelta(days=days)
@@ -175,9 +172,6 @@ def purge_old_turns(days: int = HISTORY_TTL_DAYS) -> int:
     store = None
 
     try:
-        if VECTOR_STORE_BACKEND != "chroma":
-            return 0
-
         store = get_history_store()
 
         raw = store._collection.get(

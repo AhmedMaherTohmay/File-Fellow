@@ -93,7 +93,7 @@ def sample_chunks(doc_name: Optional[str] = None, n: int = 2) -> List[Any]:
     Raises:
         RuntimeError: If the vector store is not ready or has too few chunks.
     """
-    from src.ingestion.vector_store import (
+    from src.storage.document_store import (
         get_global_store,
         get_store_for_doc,
         store_is_ready,
@@ -105,6 +105,9 @@ def sample_chunks(doc_name: Optional[str] = None, n: int = 2) -> List[Any]:
             "Please ingest at least one document first."
         )
 
+    # get_store_for_doc validates that the doc exists in the registry and
+    # returns the global store (filtering happens at query time).  When
+    # doc_name is None we use the global store directly.
     store = get_store_for_doc(doc_name) if doc_name else get_global_store()
 
     # Chroma exposes the underlying collection via ._collection
@@ -207,7 +210,7 @@ def run_rag_agent(question: str, doc_name: Optional[str] = None) -> Dict[str, An
     Returns:
         Dict with keys ``answer``, ``sources``, and ``retrieved_chunks``.
     """
-    from src.llm.qa_chain import answer_question
+    from src.services.qa import answer_question
 
     # Use a dedicated eval session ID so eval turns don't pollute user history
     return answer_question(

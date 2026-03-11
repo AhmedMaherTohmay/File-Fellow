@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple, Dict, Any
 
 from langchain_core.documents import Document
 
-from config.settings import TOP_K, SIMILARITY_THRESHOLD
+from config.settings import settings
 from src.core.utils import normalise_score
 from src.storage.document_store import get_global_store
 
@@ -39,8 +39,8 @@ def retrieve_chunks(
     query: str,
     user_id: Optional[str] = None,
     doc_name: Optional[str] = None,
-    top_k: int = TOP_K,
-    threshold: float = SIMILARITY_THRESHOLD,
+    top_k: int = settings.TOP_K,
+    threshold: float = settings.SIMILARITY_THRESHOLD,
 ) -> List[Tuple[Document, float]]:
     """
     Perform semantic retrieval from the global vector store.

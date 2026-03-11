@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import Depends, HTTPException, UploadFile
 
-from config.settings import UPLOAD_DIR
+from config.settings import settings
 from src.core.utils import sanitize_filename
 from src.storage.document_store import store_is_ready
 
@@ -26,7 +26,7 @@ async def save_upload(file: UploadFile) -> Path:
         )
 
     safe_name = sanitize_filename(file.filename)
-    dest = UPLOAD_DIR / safe_name
+    dest = settings.UPLOAD_DIR / safe_name
 
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
