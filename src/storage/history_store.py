@@ -161,10 +161,12 @@ class HistoryStore:
 
 
 def purge_old_turns(days: int = settings.HISTORY_TTL_DAYS) -> int:
+    """
+    Delete history turns older than *days* from the Chroma collection.
 
-    if settings.VECTOR_STORE_BACKEND != "chroma":
-        return 0
-
+    Returns the number of turns purged. Always non-fatal — failures are
+    logged and 0 is returned so startup is never blocked.
+    """
     cutoff_iso = (
         datetime.now(timezone.utc) - timedelta(days=days)
     ).isoformat()

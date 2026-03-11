@@ -7,12 +7,15 @@ from pathlib import Path
 from typing import Optional
 
 from config.settings import settings
+from src.core.exceptions import FileTooLarge, UnsupportedFileType
 from src.core.utils import sanitize_filename, file_content_hash
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
-MAX_FILE_MB = 50
+# Single source of truth — imported by deps.py and any other layer that
+# needs to know which file types are accepted.
+ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".docx", ".doc"})
+MAX_FILE_MB: int = 50
 
 
 @dataclass
@@ -25,20 +28,17 @@ class PreparedFile:
 
 
 def _validate_extension(filename: str) -> None:
+    """Raise UnsupportedFileType if the extension is not in ALLOWED_EXTENSIONS."""
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
-        raise ValueError(
-            f"Unsupported file type '{suffix}'. "
-            f"Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
-        )
+        raise UnsupportedFileType(suffix)
 
 
 def _validate_size(file_path: Path) -> None:
+    """Raise FileTooLarge if the file exceeds MAX_FILE_MB."""
     size_mb = file_path.stat().st_size / (1024 * 1024)
     if size_mb > MAX_FILE_MB:
-        raise ValueError(
-            f"File is {size_mb:.1f} MB — exceeds the {MAX_FILE_MB} MB limit."
-        )
+        raise FileTooLarge(size_mb, MAX_FILE_MB)
 
 
 def _check_duplicate(content_hash: str, registry: dict) -> Optional[str]:
@@ -69,8 +69,8 @@ def prepare_upload(file_path: Path, registry: dict, user_id: str = "default") ->
     Full file preparation pipeline before parsing begins.
 
     Steps:
-      1. Validate extension
-      2. Validate file size
+      1. Validate extension          → raises UnsupportedFileType
+      2. Validate file size          → raises FileTooLarge
       3. Sanitize filename
       4. Compute content hash
       5. Check for exact duplicate (same bytes already in store)

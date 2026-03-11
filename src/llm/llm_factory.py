@@ -8,27 +8,29 @@ import logging
 from functools import lru_cache
 
 from config.settings import settings
+from src.core.exceptions import LLMError
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
 def get_llm():
-    """Return a cached LangChain ChatGroq instance.
+    """
+    Return a cached LangChain ChatGroq instance.
 
     Raises:
-        ValueError: If the provider is not supported.
-        RuntimeError: If the API key is missing or initialization fails.
+        LLMError: If the provider is unsupported, the API key is missing,
+                  or ChatGroq initialization fails.
     """
     if settings.LLM_PROVIDER.lower() != "groq":
-        raise ValueError(
+        raise LLMError(
             f"Unsupported LLM_PROVIDER='{settings.LLM_PROVIDER}'. "
             "Only 'groq' is currently supported. "
             "Set LLM_PROVIDER=groq in your .env file."
         )
 
     if not settings.LLM_KEY:
-        raise RuntimeError(
+        raise LLMError(
             "LLM_KEY is not set. Please add LLM_KEY=<your-groq-api-key> to your .env file."
         )
 
@@ -50,15 +52,28 @@ def get_llm():
         )
         return llm
 
-    except Exception as e:
+    except LLMError:
+        raise  # already typed, let it propagate
+    except Exception as exc:
         logger.exception("Failed to initialize Groq LLM")
-        raise RuntimeError(f"Groq LLM initialization failed: {e}") from e
+        raise LLMError(f"Groq LLM initialization failed: {exc}") from exc
+
 
 @lru_cache(maxsize=1)
 def get_llm_for_eval():
-    """Return an LLM instance suitable for evaluation (judge role).
-    Uses the same model but with slightly higher temperature for diversity.
     """
+    Return an LLM instance for evaluation (judge role).
+
+    Uses a slightly higher temperature for answer diversity.
+
+    Raises:
+        LLMError: If initialization fails.
+    """
+    if not settings.LLM_KEY:
+        raise LLMError(
+            "LLM_KEY is not set. Cannot initialize eval LLM."
+        )
+
     try:
         from langchain_groq import ChatGroq
 
@@ -68,6 +83,6 @@ def get_llm_for_eval():
             temperature=0.1,
             max_tokens=512,
         )
-    except Exception as e:
-        logger.error("Failed to create eval LLM: %s", e)
-        raise
+    except Exception as exc:
+        logger.error("Failed to create eval LLM: %s", exc)
+        raise LLMError(f"Eval LLM initialization failed: {exc}") from exc

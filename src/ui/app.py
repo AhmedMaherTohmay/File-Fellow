@@ -4,14 +4,14 @@ import logging
 
 import gradio as gr
 
-from config.settings import GRADIO_HOST, GRADIO_PORT, GRADIO_SHARE
+from config.settings import settings
 from src.ui.styles import CSS, HEADER_HTML
-from src.ui.session import new_conversation_id
+from src.ui.session import new_conversation_id, new_user_id
 from src.ui.tabs.upload import build_upload_tab
 from src.ui.tabs.chat import build_chat_tab
 from src.ui.tabs.summary import build_summary_tab
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 with gr.Blocks(
     theme=gr.themes.Base(
@@ -22,7 +22,7 @@ with gr.Blocks(
     css=CSS,
     title="Document Q&A Assistant",
 ) as demo:
-    user_id_state      = gr.State("")
+    user_id_state      = gr.State(new_user_id)
     conversation_state = gr.State(new_conversation_id)
 
     gr.HTML(HEADER_HTML)
@@ -35,9 +35,9 @@ with gr.Blocks(
 
 def launch():
     demo.launch(
-        server_name=GRADIO_HOST,
-        server_port=GRADIO_PORT,
-        share=GRADIO_SHARE,
+        server_name=settings.GRADIO_HOST,
+        server_port=settings.GRADIO_PORT,
+        share=settings.GRADIO_SHARE,
         show_error=True,
     )
 

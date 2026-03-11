@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 
 from src.api.deps import save_upload
 from src.api.schemas.documents import IngestResponse, BatchIngestResponse
-from src.core.exceptions import ExtractionError
+from src.core.exceptions import IngestionError
 from src.ingestion.pipeline import ingest_document
 from src.storage.document_store import get_document_registry, remove_document
 
@@ -39,7 +39,8 @@ async def ingest(
             file_path=dest,
             user_id=user_id,
         )
-    except (ValueError, ExtractionError) as exc:
+    except IngestionError as exc:
+        # UnsupportedFileType, FileTooLarge, ExtractionError all caught here
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Ingestion failed for '%s': %s", dest.name, exc)
@@ -70,7 +71,7 @@ async def ingest_batch(
                 user_id=user_id,
             )
             results.append(_ingest_response(result))
-        except (ValueError, ExtractionError) as exc:
+        except IngestionError as exc:
             errors.append({"filename": file.filename, "error": str(exc)})
         except Exception as exc:
             logger.error("Ingestion error for '%s': %s", file.filename, exc)
