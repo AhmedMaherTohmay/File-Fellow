@@ -7,14 +7,14 @@ import gradio as gr
 
 from src.services.qa import answer_question
 from src.ui.formatters import get_doc_choices, sources_html
-from src.ui.session import connect_user, new_conversation
+from src.ui.session import connect_user, new_conversation, new_conversation_id
 
 logger = logging.getLogger(__name__)
 
 
 def chat(user_message, chat_history, doc_selector, user_id, conversation_id):
     if not user_message.strip():
-        return "", chat_history, ""
+        return "", chat_history, "", conversation_id
 
     doc_name = None if doc_selector == "All Documents" else doc_selector
 
@@ -28,6 +28,9 @@ def chat(user_message, chat_history, doc_selector, user_id, conversation_id):
         )
         bot_reply    = result["answer"]
         sources_text = sources_html(result["sources"])
+        # Use the server-returned conversation_id — it may have been created
+        # server-side on the first message and is now the canonical ID.
+        conversation_id = result.get("conversation_id", conversation_id)
     except Exception as e:
         logger.error("Chat error: %s", e)
         bot_reply    = f"Error: {e}"
@@ -35,15 +38,14 @@ def chat(user_message, chat_history, doc_selector, user_id, conversation_id):
 
     chat_history.append({"role": "user",      "content": user_message})
     chat_history.append({"role": "assistant",  "content": bot_reply})
-    return "", chat_history, sources_text
+    return "", chat_history, sources_text, conversation_id
 
 
 def _auto_connect_and_chat(msg, history, doc_sel, uid, conv_id):
     """Auto-create a session on first message if the user never clicked Connect."""
     if not uid:
-        # Use "default" to match the user_id that upload.py assigns when
-        uid = "default"
-        conv_id = new_conversation()
+        uid     = "default"
+        conv_id = new_conversation_id()   # just need an ID, not the full UI tuple
         session_html = (
             '<div class="session-pill pill-new">'
             '<span class="pill-dot"></span>'
@@ -54,8 +56,11 @@ def _auto_connect_and_chat(msg, history, doc_sel, uid, conv_id):
     else:
         session_html = gr.update()  # session already established — leave pill as-is
 
-    msg_out, history_out, sources_out = chat(msg, history, doc_sel, uid, conv_id)
-    return msg_out, history_out, sources_out, uid, conv_id, session_html
+    msg_out, history_out, sources_out, conv_id_out = chat(
+        msg, history, doc_sel, uid, conv_id
+    )
+    return msg_out, history_out, sources_out, uid, conv_id_out, session_html
+
 
 def build_chat_tab(user_id_state, conversation_state):
     with gr.Tab("Chat"):

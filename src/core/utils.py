@@ -38,9 +38,6 @@ def sanitize_filename(filename: str, max_stem_len: int = 80) -> str:
 def file_content_hash(file_path: "str | Path") -> str:
     """
     Compute the SHA-256 digest of a file's content.
-
-    Used by the ingestion pipeline to detect duplicate uploads regardless
-    of filename.  Returns a 64-character hex string.
     """
     sha = hashlib.sha256()
     with open(file_path, "rb") as fh:
@@ -51,18 +48,6 @@ def file_content_hash(file_path: "str | Path") -> str:
 
 def normalise_score(raw: float) -> float:
     """
-    Map a raw LangChain relevance score to the [0, 1] range.
-
-    LangChain's ``similarity_search_with_relevance_scores`` for Chroma
-    computes ``1 - cosine_distance``.  When the embedding vectors are not
-    strictly unit-normalised, cosine distance can exceed 1, producing
-    negative relevance scores.  We apply a linear rescale that maps the
-    theoretical range [-1, 1] onto [0, 1]:
-
-        normalised = (raw + 1) / 2
-
-    Both the document retriever and the history store import this function
-    so the threshold constant has a consistent meaning across the whole
-    system regardless of which component uses it.
+    Map similarity score to the [0, 1] range.
     """
     return max(0.0, min(1.0, (raw + 1.0) / 2.0))

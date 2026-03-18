@@ -8,8 +8,8 @@ from fastapi import HTTPException, UploadFile
 from config.settings import settings
 from src.core.exceptions import UnsupportedFileType
 from src.core.utils import sanitize_filename
-from src.ingestion.validators import ALLOWED_EXTENSIONS 
-from src.storage.document_store import store_is_ready
+from src.db.repositories.document_repo import store_is_ready
+from src.ingestion.validators import ALLOWED_EXTENSIONS
 
 
 async def require_store() -> None:

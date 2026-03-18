@@ -1,11 +1,13 @@
+"""
+UI formatting helpers
+"""
 from __future__ import annotations
 
 import html
 import logging
-from pathlib import Path
 from typing import List, Optional
 
-from src.storage.document_store import get_ingested_documents, get_document_registry
+from src.db.repositories.document_repo import get_ingested_documents, get_document_registry
 
 logger = logging.getLogger(__name__)
 
@@ -74,42 +76,3 @@ def sources_html(sources: list) -> str:
             f'</div>'
         )
     return f'<div class="sources-wrap"><div class="sources-label">Sources</div>{cards}</div>'
-
-
-def upload_status_html(file_objs, user_id: str = "default") -> str:
-    from src.ingestion.pipeline import ingest_document
-
-    if not file_objs:
-        return status_html("warning", "No files selected.")
-
-    if not isinstance(file_objs, list):
-        file_objs = [file_objs]
-
-    messages = []
-    for file_obj in file_objs:
-        if file_obj is None:
-            continue
-        file_path = Path(file_obj.name)
-        try:
-            result = ingest_document(file_path, user_id=user_id)
-            if result.get("duplicate"):
-                messages.append(("warning",
-                    f"{file_path.name} — duplicate of '{result['duplicate_of']}', skipped."))
-            else:
-                messages.append(("success",
-                    f"{result['filename']} — "
-                    f"{result['num_pages']} pages · {result['num_chunks']} chunks"))
-        except Exception as e:
-            logger.error("Upload error for %s: %s", file_path.name, e)
-            messages.append(("error", f"{file_path.name} — {e}"))
-
-    if not messages:
-        return status_html("warning", "No valid files processed.")
-
-    rows = "".join(
-        f'<div class="msg-row msg-{kind}">'
-        f'<span class="msg-icon">{"✓" if kind=="success" else "⚠" if kind=="warning" else "✕"}</span>'
-        f'<span>{html.escape(text)}</span></div>'
-        for kind, text in messages
-    )
-    return f'<div class="status-block">{rows}</div>'

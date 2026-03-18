@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     PGVECTOR_HNSW_EF_CONSTRUCTION: int = 64
     PGVECTOR_HNSW_EF_SEARCH: int = 40
 
+    # ── Vector Store Backend ───────────────────────────────────────────────
+    VECTOR_STORE_BACKEND: Literal["chroma", "pgvector", "qdrant"] = "chroma"
+    CHROMA_COLLECTION_PREFIX: str = "file"
+    CHAT_HISTORY_COLLECTION: str = "chat_history"
+    EMBEDDING_DIMENSION: int = 384          # matches all-MiniLM-L6-v2
+
+
     # ── LLM ───────────────────────────────────────────────────────────────
     LLM_PROVIDER: str = "groq"
     LLM_KEY: str = ""                       # SECRET — must be set in .env

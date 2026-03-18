@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 from src.api.deps import save_upload
 from src.api.schemas.documents import IngestResponse, BatchIngestResponse
 from src.core.exceptions import IngestionError
+from src.db.repositories.document_repo import get_document_registry, remove_document
 from src.ingestion.pipeline import ingest_document
-from src.storage.document_store import get_document_registry, remove_document
 
 logger = logging.getLogger(__name__)
 

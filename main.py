@@ -5,6 +5,14 @@ Usage:
     python main.py          # Launches BOTH FastAPI backend and Gradio UI
     python main.py --ui     # Gradio UI only
     python main.py --api    # FastAPI backend only
+
+Startup sequence
+----------------
+  1. Logging is configured first (before any other import that might log).
+  2. init_db() creates the connection pool and runs any pending migrations.
+     If PostgreSQL is unreachable the process exits here with a clear message.
+  3. History purge runs (non-fatal — a failure does not block startup).
+  4. FastAPI and/or Gradio start.
 """
 from __future__ import annotations
 
@@ -13,12 +21,12 @@ import logging
 import sys
 import threading
 from pathlib import Path
-from src.core.logger import setup_logging
-from config.settings import settings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# Use LOG_LEVEL and LOG_DIR from settings so they can be overridden via .env
+from src.core.logger import setup_logging
+from config.settings import settings
+
 setup_logging(
     level=settings.LOG_LEVEL,
     log_dir=settings.LOG_DIR,
@@ -27,22 +35,21 @@ setup_logging(
 logger = logging.getLogger(__name__)
 
 
-def run_migrations() -> None:
+def run_db_startup() -> None:
     """
-    Run any pending one-time data migrations before the servers start.
+    Initialise the connection pool and run pending migrations.
+
+    Uses the new src.db.engine module. Raises RuntimeError on failure
+    so the process exits immediately rather than serving errors at runtime.
     """
-    try:
-        from src.storage.document_store import migrate_per_doc_collections
-        removed = migrate_per_doc_collections()
-        if removed:
-            logger.info("Migration: cleaned up %d stale collection(s).", removed)
-    except Exception as exc:
-        logger.warning("Migration failed (non-fatal): %s", exc)
+    from src.db.engine import init_db
+    init_db()
 
 
 def run_history_purge() -> None:
+    """Delete conversation turns older than HISTORY_TTL_DAYS. Non-fatal."""
     try:
-        from src.storage.history_store import purge_old_turns
+        from src.db.repositories.history_repo import purge_old_turns
         purged = purge_old_turns()
         if purged:
             logger.info("History purge: removed %d old turn(s).", purged)
@@ -53,12 +60,18 @@ def run_history_purge() -> None:
 def run_api() -> None:
     import uvicorn
     logger.info("Starting FastAPI on http://%s:%d", settings.API_HOST, settings.API_PORT)
-    uvicorn.run("src.api.app:app", host=settings.API_HOST, port=settings.API_PORT, reload=False, log_level="warning")
+    uvicorn.run(
+        "src.api.app:app",
+        host=settings.API_HOST,
+        port=settings.API_PORT,
+        reload=False,
+        log_level="warning",
+    )
 
 
 def run_ui() -> None:
     from src.ui.app import launch
-    logger.info("Starting Gradio UI...")
+    logger.info("Starting Gradio UI on http://%s:%d", settings.GRADIO_HOST, settings.GRADIO_PORT)
     launch()
 
 
@@ -69,7 +82,7 @@ def main() -> None:
     group.add_argument("--api", action="store_true", help="Run FastAPI backend only")
     args = parser.parse_args()
 
-    run_migrations()
+    run_db_startup()
     run_history_purge()
 
     if args.api:

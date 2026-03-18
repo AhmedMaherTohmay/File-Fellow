@@ -5,7 +5,7 @@ import logging
 
 import gradio as gr
 
-from src.storage.document_store import get_ingested_documents
+from src.db.repositories.document_repo import get_ingested_documents
 from src.services.summary import summarize_document
 from src.ui.formatters import get_doc_choices, status_html
 

@@ -1,14 +1,62 @@
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 import gradio as gr
 
-from src.storage.document_store import remove_document
-from src.ui.formatters import doc_list_html, status_html, upload_status_html
+from src.db.repositories.document_repo import remove_document
+from src.ingestion.pipeline import ingest_document
+from src.ui.formatters import doc_list_html, status_html
+
+logger = logging.getLogger(__name__)
 
 
 def handle_upload(file_objs, user_id: str):
+    """
+    Ingest each uploaded file and return status HTML + updated doc list.
+
+    Ingestion logic lives here — not inside a formatter helper. Formatters
+    only receive data to render; they don't call the ingestion pipeline.
+    """
     uid = user_id or "default"
-    return upload_status_html(file_objs, user_id=uid), doc_list_html(user_id=uid)
+
+    if not file_objs:
+        return status_html("warning", "No files selected."), doc_list_html(user_id=uid)
+
+    if not isinstance(file_objs, list):
+        file_objs = [file_objs]
+
+    import html as html_mod
+    messages = []
+    for file_obj in file_objs:
+        if file_obj is None:
+            continue
+        file_path = Path(file_obj.name)
+        try:
+            result = ingest_document(file_path, user_id=uid)
+            if result.get("duplicate"):
+                messages.append(("warning",
+                    f"{file_path.name} — duplicate of '{result['duplicate_of']}', skipped."))
+            else:
+                messages.append(("success",
+                    f"{result['filename']} — "
+                    f"{result['num_pages']} pages · {result['num_chunks']} chunks"))
+        except Exception as e:
+            logger.error("Upload error for %s: %s", file_path.name, e)
+            messages.append(("error", f"{file_path.name} — {e}"))
+
+    if not messages:
+        return status_html("warning", "No valid files processed."), doc_list_html(user_id=uid)
+
+    rows = "".join(
+        f'<div class="msg-row msg-{kind}">'
+        f'<span class="msg-icon">{"✓" if kind=="success" else "⚠" if kind=="warning" else "✕"}</span>'
+        f'<span>{html_mod.escape(text)}</span></div>'
+        for kind, text in messages
+    )
+    status = f'<div class="status-block">{rows}</div>'
+    return status, doc_list_html(user_id=uid)
 
 
 def handle_remove(doc_name: str, user_id: str):
@@ -35,7 +83,9 @@ def build_upload_tab(user_id_state):
 
         gr.HTML('<hr class="section-divider">')
         gr.HTML('<div class="section-title">Ingested Documents</div>')
-        doc_table   = gr.HTML(doc_list_html())
+        # Initial render uses user_id_state value — at page load this is the
+        # generated session ID, so it correctly shows only this user's documents.
+        doc_table   = gr.HTML(doc_list_html(user_id=None))
         refresh_btn = gr.Button("Refresh", variant="secondary")
 
         gr.HTML('<hr class="section-divider">')
