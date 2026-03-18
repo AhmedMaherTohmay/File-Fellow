@@ -30,5 +30,6 @@ dependencies = [
     "python-docx==1.2.0",
     # Numerics
     "numpy==1.26.4",
+    "psycopg2>=2.9.11",
 ]
 # uv add -r requirements.txt

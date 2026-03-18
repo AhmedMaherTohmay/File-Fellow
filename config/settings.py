@@ -1,14 +1,24 @@
 """
 Application configuration — single source of truth.
+
+Architecture:
+  - Secrets (LLM_KEY, DATABASE_URL) come exclusively from .env
+  - Deployment overrides (hosts, ports, log level) can also be set in .env
+  - All other values have validated defaults here; no .env entry is required
+  - config.yaml is kept as human-readable documentation only (not loaded at runtime)
+
+Usage:
+    from config.settings import settings
+    settings.CHUNK_SIZE       # → 800
+    settings.DATABASE_URL     # → value from .env
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolved once at import time so computed paths are consistent
 _BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
 
@@ -17,7 +27,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
-        extra="ignore",          # silently ignore unknown env vars
+        extra="ignore",
     )
 
     # ── Application ────────────────────────────────────────────────────────
@@ -25,27 +35,23 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
 
-    # ── Vector Store Backend ───────────────────────────────────────────────
-    VECTOR_STORE_BACKEND: Literal["chroma", "pgvector", "qdrant"] = "chroma"
-    CHROMA_COLLECTION_PREFIX: str = "file"
-    CHAT_HISTORY_COLLECTION: str = "chat_history"
-    EMBEDDING_DIMENSION: int = 384          # matches all-MiniLM-L6-v2
+    # ── Database ───────────────────────────────────────────────────────────
+    # SECRET — must be set in .env
+    DATABASE_URL: str = ""
+    DATABASE_POOL_SIZE: int = 20
 
-    # ── pgvector (future) ──────────────────────────────────────────────────
+    # ── pgvector ───────────────────────────────────────────────────────────
+    EMBEDDING_DIMENSION: int = 384          # must match SENTENCE_TRANSFORMER_MODEL output
     PGVECTOR_HNSW_M: int = 16
     PGVECTOR_HNSW_EF_CONSTRUCTION: int = 64
     PGVECTOR_HNSW_EF_SEARCH: int = 40
-
-    # ── Qdrant (future) ────────────────────────────────────────────────────
-    QDRANT_URL: str = "http://localhost:6333"
-    QDRANT_API_KEY: Optional[str] = None    # secret — set in .env if needed
 
     # ── LLM ───────────────────────────────────────────────────────────────
     LLM_PROVIDER: str = "groq"
     LLM_KEY: str = ""                       # SECRET — must be set in .env
     GROQ_MODEL_ID: str = "llama-3.3-70b-versatile"
     LLM_TEMPERATURE: float = 0.0
-    LLM_MAX_TOKENS: int = 4096              # authoritative default (was split between yaml/env)
+    LLM_MAX_TOKENS: int = 4096
 
     # ── Embeddings ─────────────────────────────────────────────────────────
     EMBEDDING_PROVIDER: str = "sentence_transformers"
@@ -80,7 +86,7 @@ class Settings(BaseSettings):
     EVAL_NUM_QUESTIONS: int = 10
     EVAL_BASELINE_DOC_FRACTION: float = 0.1
 
-    # ── Paths (derived from project root; override via env vars if needed) ─
+    # ── Paths ──────────────────────────────────────────────────────────────
     UPLOAD_DIR: Path = _BASE_DIR / "data" / "uploads"
     VECTOR_STORE_DIR: Path = _BASE_DIR / "data" / "vector_store"
     LOG_DIR: Path = _BASE_DIR / "data" / "logs"
